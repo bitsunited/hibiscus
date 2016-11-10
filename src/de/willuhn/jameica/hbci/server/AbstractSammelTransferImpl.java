@@ -16,7 +16,6 @@ import java.util.Date;
 import de.willuhn.datasource.BeanUtil;
 import de.willuhn.datasource.rmi.DBIterator;
 import de.willuhn.jameica.hbci.HBCI;
-import de.willuhn.jameica.hbci.rmi.Duplicatable;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
 import de.willuhn.jameica.hbci.rmi.SammelTransfer;
@@ -31,7 +30,7 @@ import de.willuhn.util.I18N;
  * Abstrakte Basis-Implementierung des Containers fuer Sammel-Transfers.
  * @author willuhn
  */
-public abstract class AbstractSammelTransferImpl extends AbstractHibiscusDBObject implements SammelTransfer, Duplicatable, Terminable
+public abstract class AbstractSammelTransferImpl extends AbstractHibiscusDBObject implements SammelTransfer, Terminable
 {
 
   private final static transient I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
@@ -341,42 +340,6 @@ public abstract class AbstractSammelTransferImpl extends AbstractHibiscusDBObjec
   }
 
   /**
-   * @see de.willuhn.jameica.hbci.rmi.Duplicatable#duplicate()
-   */
-  public Duplicatable duplicate() throws RemoteException
-  {
-    // BUGZILLA 115 http://www.willuhn.de/bugzilla/show_bug.cgi?id=115
-    SammelTransfer l = null;
-    try
-    {
-      l = (SammelTransfer) getService().createObject(this.getClass(),null);
-      l.transactionBegin();
-      l.setBezeichnung(this.getBezeichnung());
-      l.setKonto(this.getKonto());
-      l.setTermin(new Date());
-      l.store();
-      DBIterator list = this.getBuchungen();
-      while (list.hasNext())
-      {
-        SammelTransferBuchung b = (SammelTransferBuchung) list.next();
-        SammelTransferBuchung b2 = (SammelTransferBuchung) ((Duplicatable)b).duplicate();
-        b2.setSammelTransfer(l);
-        b2.store();
-      }
-      l.transactionCommit();
-      return (Duplicatable) l;
-    }
-    catch (Exception e)
-    {
-      if (l != null)
-        l.transactionRollback();
-      Logger.error("unable to duplicate sammeltransfer",e);
-      throw new RemoteException(i18n.tr("Fehler beim Duplizieren des Sammel-Auftrages"),e);
-    }
-  }
-
-
-  /**
    * @see de.willuhn.jameica.hbci.rmi.SammelTransfer#getBuchungenAsArray()
    */
   public SammelTransferBuchung[] getBuchungenAsArray() throws RemoteException
@@ -390,42 +353,22 @@ public abstract class AbstractSammelTransferImpl extends AbstractHibiscusDBObjec
     return (SammelTransferBuchung[]) buchungen.toArray(new SammelTransferBuchung[buchungen.size()]);
   }
 
-
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SammelTransfer#hasWarnings()
+   */
+  public boolean hasWarnings() throws RemoteException
+  {
+    Integer i = (Integer) getAttribute("warnungen");
+    if (i == null)
+      return false;
+    return i.intValue() == 1;
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SammelTransfer#setWarning(boolean)
+   */
+  public void setWarning(boolean b) throws RemoteException
+  {
+    setAttribute("warnungen",new Integer(b ? 1 : 0));
+  }
 }
-
-/*****************************************************************************
- * $Log: AbstractSammelTransferImpl.java,v $
- * Revision 1.11  2011/10/27 09:42:14  willuhn
- * @B Automatisch aktuelles Datum verwenden, wenn keines angegeben ist
- *
- * Revision 1.10  2011/10/20 16:20:05  willuhn
- * @N BUGZILLA 182 - Erste Version von client-seitigen Dauerauftraegen fuer alle Auftragsarten
- *
- * Revision 1.9  2011/10/18 09:28:14  willuhn
- * @N Gemeinsames Basis-Interface "HibiscusDBObject" fuer alle Entities (ausser Version und DBProperty) mit der Implementierung "AbstractHibiscusDBObject". Damit koennen jetzt zu jedem Fachobjekt beliebige Meta-Daten in der Datenbank gespeichert werden. Wird im ersten Schritt fuer die Reminder verwendet, um zu einem Auftrag die UUID des Reminders am Objekt speichern zu koennen
- *
- * Revision 1.8  2011/10/14 14:23:04  willuhn
- * *** empty log message ***
- *
- * Revision 1.7  2011-04-29 15:33:28  willuhn
- * @N Neue Spalte "ausgefuehrt_am", in der das tatsaechliche Ausfuehrungsdatum von Auftraegen vermerkt wird
- *
- * Revision 1.6  2010-11-21 23:55:47  willuhn
- * @C Uebernahme des Termins beim Duplizieren war nicht konsistent. Jetzt wird er nur noch bei Bank-gefuehrten Termin-Ueberweisungen uebernommen
- *
- * Revision 1.5  2009/02/18 10:48:42  willuhn
- * @N Neuer Schalter "transfer.markexecuted.before", um festlegen zu koennen, wann ein Auftrag als ausgefuehrt gilt (wenn die Quittung von der Bank vorliegt oder wenn der Auftrag erzeugt wurde)
- *
- * Revision 1.4  2008/04/27 22:22:56  willuhn
- * @C I18N-Referenzen statisch
- *
- * Revision 1.3  2006/12/01 00:02:34  willuhn
- * @C made unserializable members transient
- *
- * Revision 1.2  2006/08/17 10:06:32  willuhn
- * @B Fehler in HTML-Export von Sammeltransfers
- *
- * Revision 1.1  2005/09/30 00:08:50  willuhn
- * @N SammelUeberweisungen (merged with SammelLastschrift)
- *
-*****************************************************************************/

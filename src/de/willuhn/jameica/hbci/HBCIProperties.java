@@ -12,10 +12,24 @@
  **********************************************************************/
 package de.willuhn.jameica.hbci;
 
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
+import org.apache.commons.lang.StringUtils;
 import org.kapott.hbci.manager.HBCIUtils;
 
+import de.jost_net.OBanToo.SEPA.IBAN;
+import de.jost_net.OBanToo.SEPA.IBANCode;
+import de.jost_net.OBanToo.SEPA.SEPAException;
+import de.jost_net.OBanToo.SEPA.SEPAException.Fehler;
+import de.jost_net.OBanToo.SEPA.BankenDaten.Bank;
+import de.jost_net.OBanToo.SEPA.BankenDaten.Banken;
+import de.willuhn.datasource.rmi.DBService;
+import de.willuhn.jameica.hbci.rmi.AddressbookService;
+import de.willuhn.jameica.hbci.rmi.HibiscusAddress;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.Settings;
 import de.willuhn.jameica.util.DateUtil;
@@ -50,13 +64,24 @@ public class HBCIProperties
    */
   // public final static String HBCI_SWIFT_VALIDCHARS = settings.getString("hbci.swift.validchars", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '()+,-./:?{}"); 
 
-  /**
+	/**
    * Liste der in SEPA erlaubten Zeichen.
    * Siehe http://www.ebics.de/fileadmin/unsecured/anlage3/anlage3_spec/Anlage_3_DatenformateV2.6.pdf
    * Absatz 2.1, BUGZILLA 1244
    */
   public final static String HBCI_SEPA_VALIDCHARS = settings.getString("hbci.sepa.validchars", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789':?,- (+.)/");
-  
+
+  /**
+   * Liste der in SEPA erlaubten Zeichen. Jedoch erweitert um die im Inland extra erlaubten Zeichen - insbesondere die Umlaute.
+   * Siehe Anlage3_Datenformate_V2.7.pdf Seite 23
+   */
+  public final static String HBCI_SEPA_VALIDCHARS_RELAX = HBCI_SEPA_VALIDCHARS + settings.getString("hbci.sepa.validchars.add", "ÜÖÄüöäß&*$%");
+
+  /**
+   * Liste der fuer die Mandate-ID gueltigen Zeichen. RestrictedIdentificationSEPA2.
+   */
+  public final static String HBCI_SEPA_MANDATE_VALIDCHARS = settings.getString("hbci.sepa.mandate.validchars", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789':?,-(+.)/");
+
   /**
    * Liste der in einer IBAN erlaubten Zeichen.
    */
@@ -65,9 +90,14 @@ public class HBCIProperties
   /**
    * Liste der in einer BIC erlaubten Zeichen.
    */
-  public final static String HBCI_BIC_VALIDCHARS = settings.getString("hbci.bic.validchars", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"); 
+  public final static String HBCI_BIC_VALIDCHARS = settings.getString("hbci.bic.validchars", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"); 
 
-	/**
+  /**
+   * Liste der in Purpose-Codes erlaubten Zeichen.
+   */
+  public final static String HBCI_SEPA_PURPOSECODE_VALIDCHARS = settings.getString("hbci.sepa.purposecode.validchars", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"); 
+
+  /**
    * Liste der in Bankleitzahlen erlaubten Zeichen.
    */
   public final static String HBCI_BLZ_VALIDCHARS = settings.getString("hbci.blz.validchars","0123456789"); 
@@ -87,6 +117,16 @@ public class HBCIProperties
    * Maximale Text-Laenge einer Verwendungszweck-Zeile.
    */
   public final static int HBCI_TRANSFER_USAGE_MAXLENGTH = settings.getInt("hbci.transfer.usage.maxlength",27);
+
+  /**
+   * Maximale Laenge eines GV-Code.
+   */
+  public final static int HBCI_GVCODE_MAXLENGTH = settings.getInt("hbci.gvcode.maxlength",3);
+
+  /**
+   * Maximale Laenge eines Textschluessels.
+   */
+  public final static int HBCI_ADDKEY_MAXLENGTH = settings.getInt("hbci.addkey.maxlength",3);
 
   /**
    * Laenge der Pruefziffern bei BZÜ-Ueberweisung.
@@ -147,7 +187,7 @@ public class HBCIProperties
 	/**
 	 * Maximale Text-Laenge fuer Namen.
 	 */
-	public final static int HBCI_TRANSFER_NAME_MAXLENGTH = settings.getInt("hbci.transfer.name.maxlength",27);
+	public final static int HBCI_TRANSFER_NAME_MAXLENGTH = settings.getInt("hbci.transfer.name.maxlength",70);
 
   // BUGZILLA 29 http://www.willuhn.de/bugzilla/show_bug.cgi?id=29
   /**
@@ -173,6 +213,64 @@ public class HBCIProperties
   public final static int UMSATZ_DEFAULT_DAYS = settings.getInt("umsatz.default.days",30);
   
   /**
+   * Maximale Laenge der EndtoEnd-ID bei SEPA.
+   */
+  public final static int HBCI_SEPA_ENDTOENDID_MAXLENGTH = settings.getInt("hbci.sepa.endtoendid.maxlength",35);
+  
+  /**
+   * Maximale Laenge des Purpose-Codes bei SEPA.
+   */
+  public final static int HBCI_SEPA_PURPOSECODE_MAXLENGTH = settings.getInt("hbci.sepa.purposecode.maxlength",4);
+
+  /**
+   * Maximale Laenge der Mandate-ID bei SEPA.
+   */
+  public final static int HBCI_SEPA_MANDATEID_MAXLENGTH = settings.getInt("hbci.sepa.mandateid.maxlength",35);
+
+  /**
+   * Maximale Laenge der Glaeubiger-ID bei SEPA.
+   */
+  public final static int HBCI_SEPA_CREDITORID_MAXLENGTH = settings.getInt("hbci.sepa.creditorid.maxlength",35);
+
+  /**
+   * SEPA-Tags parsen?
+   */
+  public final static boolean HBCI_SEPA_PARSE_TAGS = settings.getBoolean("hbci.sepa.parsetags",true);
+
+  /**
+   * Text-Replacements fuer SEPA.
+   * Die in SEPA nicht zulaessigen Zeichen "&*%$üöäÜÖÄß" werden ersetzt.
+   */
+  public final static String[][] TEXT_REPLACEMENTS_SEPA = new String[][] {new String[]{"&","*","%","$","ü", "ö", "ä", "Ü", "Ö", "Ä", "ß"},
+                                                                          new String[]{"+",".",".",".","ue","oe","ae","Ue","Oe","Ae","ss"}};
+
+  /**
+   * Text-Replacements fuer Umsatz-Properties.
+   */
+  public final static String[][] TEXT_REPLACEMENTS_UMSATZ = new String[][] {new String[]{"\n","\r"},
+                                                                            new String[]{""  ,""}};
+  
+  private final static Map<Fehler,String> obantooCodes = new HashMap<Fehler,String>()
+  {{
+    put(Fehler.BLZ_LEER,                                    i18n.tr("Keine BLZ angegeben"));
+    put(Fehler.BLZ_UNGUELTIGE_LAENGE,                       i18n.tr("BLZ nicht achtstellig"));
+    put(Fehler.BLZ_UNGUELTIG,                               i18n.tr("BLZ unbekannt"));
+    put(Fehler.KONTO_LEER,                                  i18n.tr("Keine Kontonummer angegeben"));
+    put(Fehler.KONTO_UNGUELTIGE_LAENGE,                     i18n.tr("Länge der Kontonummer ungültig"));
+    put(Fehler.KONTO_PRUEFZIFFER_FALSCH,                    i18n.tr("Prüfziffer der Kontonummer falsch"));
+    put(Fehler.KONTO_PRUEFZIFFERNREGEL_NICHT_IMPLEMENTIERT, i18n.tr("Prüfziffern-Verfahren der Kontonummer unbekannt"));
+    put(Fehler.IBANREGEL_NICHT_IMPLEMENTIERT,               i18n.tr("IBAN-Regel unbekannt"));
+    put(Fehler.UNGUELTIGES_LAND,                            i18n.tr("Land unbekannt"));
+  }};
+  
+  private final static List<Fehler> ignoredErrors = new ArrayList<Fehler>()
+  {{
+    // Siehe BUGZILLA 1569
+    add(Fehler.UNGUELTIGES_LAND);
+  }};
+
+
+  /**
    * Bereinigt einen Text um die nicht erlaubten Zeichen.
    * @param text zu bereinigender Text.
    * @param validChars Liste der erlaubten Zeichen.
@@ -187,10 +285,25 @@ public class HBCIProperties
     char[] chars = text.toCharArray();
     for (char c:chars)
     {
-      if (HBCI_DTAUS_VALIDCHARS.contains(Character.toString(c)))
+      if (validChars.contains(Character.toString(c)))
         sb.append(c);
     }
     return sb.toString();
+  }
+  
+  /**
+   * Ersetzt im Text Strings entsprechend der Replacements. 
+   * @param text der Text mit den zu ersetzenden Zeichen.
+   * @param replacements die Ersetzungen.
+   * @return der Text mit den ersetzten Zeichen.
+   * @see HBCIProperties#TEXT_REPLACEMENTS_SEPA
+   */
+  public final static String replace(String text, String[][] replacements)
+  {
+    if (text == null || text.length() == 0)
+      return text;
+    
+    return StringUtils.replaceEach(text,replacements[0],replacements[1]);
   }
   
   /**
@@ -247,6 +360,73 @@ public class HBCIProperties
         throw new ApplicationException(i18n.tr("Der Text \"{0}\" wird nach der HBCI-Kodierung (ß wird hierbei gegen SS ersetzt) zu lang.",chars));
     }
   }
+  
+  /**
+   * Gruppiert den String alle <code>len</code> Zeichen in Bloecke, die durch den
+   * String <code>sep</code> getrennt sind.  
+   * @param s der zu gruppierende String.
+   * @param len Anzahl der Zeichen pro Gruppe.
+   * @param sep das Trennzeichen. Falls null, wird ein Leerzeichen als Trenner verwendet.
+   * @return der gruppierte String.
+   */
+  public final static String group(String s, int len, String sep)
+  {
+    if (s == null)
+      return "";
+    
+    if (sep == null)
+      sep = " ";
+    return s.replaceAll("(.{" + len + "})", "$0" + sep).trim();
+  }
+  
+  /**
+   * Gruppiert eine IBAN in Gruppen zu je 4 Zeichen und schreibt die ersten
+   * beiden Buchstaben (Laenderkennzeichen) gross.
+   * @param s die IBAN.
+   * @return die formatierte Darstellung.
+   */
+  public final static String formatIban(String s)
+  {
+    if (s == null)
+      return "";
+
+    // Wenn der Text irgendwas ausser Zahlen, Buchstaben und Leerzeichen enthaelt,
+    // formatieren wir es nicht. Dann ist es keine IBAN
+    try
+    {
+      checkChars(s,HBCI_IBAN_VALIDCHARS + " ");
+      s = s.replaceAll(" ", "");
+      return group(s,4," ").toUpperCase();
+    }
+    catch (ApplicationException ae)
+    {
+      return s;
+    }
+  }
+  
+  /**
+   * Ermittelt zu einer BIC oder BLZ den Namen der Bank.
+   * @param bic die BIC oder BLZ.
+   * @return der Name der Bank oder ein Leerstring, wenn nicht ermittelbar.
+   * Niemals NULL sondern hoechstens ein Leerstring.
+   */
+  public final static String getNameForBank(String bic)
+  {
+    bic = StringUtils.trimToNull(bic);
+    if (bic == null)
+      return null;
+    
+    Bank bank = null;
+    
+    // Wenn sie 8 Zeichen lang ist, gehen wir davon aus, dass es eine BLZ ist.
+    // Sonst versuchen wir es als BIC zu interpretieren.
+    if (bic.length() == HBCI_BLZ_LENGTH)
+      bank = Banken.getBankByBLZ(bic);
+    else
+      bank = Banken.getBankByBIC(bic);
+    
+    return bank != null ? bank.getBezeichnung() : null;
+  }
 
   /**
    * Prueft die Gueltigkeit der BLZ/Kontonummer-Kombi anhand von Pruefziffern.
@@ -278,56 +458,122 @@ public class HBCIProperties
       return true;
     }
     
-    try
-    {
-      if (!HBCIUtils.canCheckAccountCRC(blz))
-        return true; // koennen wir nicht pruefen. Dann akzeptieren wir das so.
-      return HBCIUtils.checkAccountCRC(blz, kontonummer);
-    }
-    catch (Exception e)
+    
+    // einen Fehlversuch erlauben wir. Das kann passieren, wenn HBCI4Java
+    // noch nicht fuer den aktuellen Thread initialisiert ist.
+    for (int i=0;i<2;++i)
     {
       try
       {
-        Logger.warn("HBCI4Java subsystem seems to be not initialized for this thread group, adding thread group");
-        HBCI plugin = (HBCI) Application.getPluginLoader().getPlugin(HBCI.class);
-        HBCIUtils.initThread(plugin.getHBCIPropetries(),plugin.getHBCICallback());
-
         if (!HBCIUtils.canCheckAccountCRC(blz))
-          return true;
-        return HBCIUtils.checkAccountCRC(blz, kontonummer);
+          return true; // koennen wir nicht pruefen. Dann akzeptieren wir das so.
+        if (HBCIUtils.checkAccountCRC(blz, kontonummer))
+          return true; // CRC-Pruefung bestanden
+        
+        if (!de.willuhn.jameica.hbci.Settings.getKontoCheckExcludeAddressbook())
+          return false; // CRC-Pruefung nicht bestanden und wir sollen nicht im Adressbuch nachsehen
+
+        // OK, wir schauen im Adressbuch
+        DBService db = de.willuhn.jameica.hbci.Settings.getDBService();
+        HibiscusAddress address = (HibiscusAddress) db.createObject(HibiscusAddress.class,null);
+        address.setBlz(blz);
+        address.setKontonummer(kontonummer);
+        AddressbookService service = (AddressbookService) Application.getServiceFactory().lookup(HBCI.class,"addressbook");
+        return (service.contains(address) != null);
       }
-      catch (Exception e2)
+      catch (Exception e)
       {
-        Logger.error("unable to verify account crc number",e2);
-        return true;
+        if (i == 0)
+        {
+          try
+          {
+            Logger.warn("HBCI4Java subsystem seems to be not initialized for this thread group, adding thread group");
+            HBCI plugin = (HBCI) Application.getPluginLoader().getPlugin(HBCI.class);
+            HBCIUtils.initThread(plugin.getHBCIPropetries(),plugin.getHBCICallback());
+            
+            continue; // ok, nochmal versuchen
+          }
+          catch (Exception e2)
+          {
+            Logger.error("unable to initialize HBCI4Java subsystem",e2);
+          }
+        }
+        else
+        {
+          Logger.error("unable to verify account crc number",e);
+        }
       }
     }
+    
+    Logger.error("unable to verify account crc number");
+    return true;
   }
-
+  
   /**
    * Prueft die Gueltigkeit einer IBAN anhand von Pruefziffern.
    * @see HBCIUtils#checkIBANCRC(java.lang.String)
    * @param iban die IBAN.
    * @return true, wenn die IBAN ok ist.
+   * @deprecated Bitte {@link HBCIProperties#getIBAN(String)} verwenden.
    */
+  @Deprecated
   public final static boolean checkIBANCRC(String iban)
   {
-    if (!de.willuhn.jameica.hbci.Settings.getKontoCheck())
-      return true;
     try
     {
-      if (iban == null || // Nichts angegeben
-          iban.length() == 0 || // Nichts angegeben
-          iban.length() > HBCI_IBAN_MAXLENGTH || // zu lang
-          iban.length() <= HBCI_KTO_MAXLENGTH_HARD) // zu kurz
+      getIBAN(iban);
+      return true;
+    }
+    catch (ApplicationException ae)
+    {
+      return false;
+    }
+  }
+  
+  /**
+   * Prueft die BIC und liefert eine ggf korrigierte Version zurueck. 
+   * @param bic die zu pruefende BIC.
+   * @return die korrigierte BIC (ggf um "XXX" ergaenzt).
+   * @throws ApplicationException
+   */
+  public final static String checkBIC(String bic) throws ApplicationException
+  {
+    // Eine BIC hat entweder exakt 8 oder exakt 11 Zeichen. Bei 8 Zeichen vervollstaendigen
+    // wir rechts mit 3 * X. Bei 11 Zeichen lassen wir es so. Bei irgendwas
+    // anderem bringen wir einen Fehler.
+    checkChars(bic,HBCI_BIC_VALIDCHARS);
+    
+    int len = bic.length();
+    if (len != HBCI_BIC_MAXLENGTH && len != 8)
+      throw new ApplicationException(i18n.tr("Bitte prüfen Sie die Länge der BIC. Muss entweder 8 oder 11 Zeichen lang sein."));
+    
+    if (len == 8)
+      bic += "XXX";
+    
+    return bic;
+  }
+  /**
+   * Prueft die Gueltigkeit einer Creditor-ID (Gläubiger-Identifikationsnummer)
+   * anhand von Pruefziffern.
+   * @see HBCIUtils#checkCredtitorIdCRC(String)
+   * @param creditorId die Creditor-ID
+   * @return true, wenn die Creditor-ID ok ist.
+   */
+  public final static boolean checkCreditorIdCRC(String creditorId)
+  {
+    try
+    {
+      if (creditorId == null || // Nichts angegeben
+          creditorId.length() == 0 || // Nichts angegeben
+          creditorId.length() > HBCI_SEPA_CREDITORID_MAXLENGTH ) // zu lang
       {
         return false;
       }
-      return HBCIUtils.checkIBANCRC(iban);
+      return HBCIUtils.checkCredtitorIdCRC(creditorId);
     }
     catch (NumberFormatException nfe)
     {
-      Logger.warn("invalid iban: " + nfe.getMessage());
+      Logger.warn("invalid creditor-id: " + nfe.getMessage());
       return false;
     }
     catch (Exception e)
@@ -337,15 +583,155 @@ public class HBCIProperties
         Logger.warn("HBCI4Java subsystem seems to be not initialized for this thread group, adding thread group");
         HBCI plugin = (HBCI) Application.getPluginLoader().getPlugin(HBCI.class);
         HBCIUtils.initThread(plugin.getHBCIPropetries(),plugin.getHBCICallback());
-        return HBCIUtils.checkIBANCRC(iban);
+        return HBCIUtils.checkCredtitorIdCRC(creditorId);
       }
       catch (Exception e2)
       {
-        Logger.error("unable to verify iban crc number",e2);
+        Logger.error("unable to verify creditor id crc number",e2);
         return true;
       }
     }
   }
+
+  /**
+   * Erzeugt eine IBAN aus dem String und fuehrt diverse Pruefungen auf dieser durch.
+   * @param iban die IBAN.
+   * @return die gepruefte IBAN.
+   * @throws ApplicationException die Fehlermeldung, wenn die IBAN nicht korrekt ist.
+   */
+  public final static IBAN getIBAN(String iban) throws ApplicationException
+  {
+    if (!de.willuhn.jameica.hbci.Settings.getKontoCheck())
+      return null;
+
+    if (StringUtils.trimToNull(iban) == null)
+      return null;
+    
+    iban = StringUtils.deleteWhitespace(iban);
+    
+    try
+    {
+      return new IBAN(iban);
+    }
+    catch (SEPAException se)
+    {
+      Fehler f = se.getFehler();
+      if (f != null && ignoredErrors.contains(f))
+      {
+        Logger.warn("unable to verify IBAN, got error " + f + ", will be tolerated");
+        return null;
+      }
+      
+      throw new ApplicationException(se.getMessage());
+    }
+  }
+  
+
+  /**
+   * Erzeugt die IBAN aus der uebergebenen Bankverbindung.
+   * @param blz die BLZ.
+   * @param konto die Kontonummer.
+   * @return die IBAN.
+   * @throws ApplicationException
+   */
+  public final static IBAN getIBAN(String blz, String konto) throws ApplicationException
+  {
+    try
+    {
+      IBAN iban = new IBAN(konto, blz, "DE");
+      
+      // Rückgabe-Code checken
+      IBANCode code = iban.getCode();
+      if (code == null || code == IBANCode.GUELTIG)
+        return iban;
+      
+      // Tolerieren wir ebenfalls
+      if (code == IBANCode.KONTONUMMERERSETZT || 
+          code == IBANCode.GEMELDETEBLZZURLOESCHUNGVORGEMERKT ||
+          code == IBANCode.PRUEFZIFFERNMETHODEFEHLT)
+        return iban;
+
+      // Fehler werfen
+      throw new ApplicationException(code.getMessage());
+    }
+    catch (SEPAException e)
+    {
+      // Haben wir einen Fehlercode?
+      Fehler f = e.getFehler();
+      if (f != null)
+      {
+        String msg = obantooCodes.get(f);
+        if (msg != null)
+          throw new ApplicationException(msg);
+      }
+
+      // Oder alternativ einen Fehlertext?
+      String msg = e.getMessage();
+      if (msg != null)
+        throw new ApplicationException(msg);
+
+      Logger.error("unable to generate IBAN",e);
+      throw new ApplicationException(i18n.tr("IBAN konnte nicht ermittelt werden"));
+    }
+    catch (Throwable e2) // BUGZILLA-1405 auch "ExceptionInInitializerError" in obantoo mit fangen
+    {
+      Logger.error("unable to generate IBAN",e2);
+      throw new ApplicationException(i18n.tr("IBAN konnte nicht ermittelt werden"));
+    }
+  }
+  
+  /**
+   * Laeuft den Stack der Exceptions bis zur urspruenglichen hoch und liefert sie zurueck.
+   * HBCI4Java verpackt Exceptions oft tief ineinander. Sie werden gefangen, in eine
+   * neue gepackt und wieder geworfen. Um nun die eigentliche Fehlermeldung zu kriegen,
+   * suchen wir hier nach der ersten. 
+   * BUGZILLA 249
+   * @param t die Exception.
+   * @return die urspruengliche.
+   */
+  public static Throwable getCause(Throwable t)
+  {
+    return getCause(t,null);
+  }
+  
+  /**
+   * Laeuft den Stack der Exceptions bis zur urspruenglichen hoch und liefert sie zurueck.
+   * HBCI4Java verpackt Exceptions oft tief ineinander. Sie werden gefangen, in eine
+   * neue gepackt und wieder geworfen. Um nun die eigentliche Fehlermeldung zu kriegen,
+   * suchen wir hier nach der ersten. 
+   * BUGZILLA 249
+   * @param t die Exception.
+   * @param c optionale Angabe der gesuchten Exception.
+   * Wird sie nicht angegeben, liefert die Funktion die erste geworfene Exception
+   * im Stacktrace. Wird sie angegeben, liefert die Funktion die erste gefundene
+   * Exception dieser Klasse - insofern sie gefunden wird. Wird sie nicht gefunden,
+   * liefert die Funktion NULL.
+   * @return die urspruengliche.
+   */
+  public static Throwable getCause(Throwable t, Class<? extends Throwable> c)
+  {
+    Throwable cause = t;
+    
+    for (int i=0;i<20;++i) // maximal 20 Schritte nach oben
+    {
+      if (c != null && c.equals(cause.getClass()))
+        return cause;
+      
+      Throwable current = cause.getCause();
+
+      if (current == null)
+        break; // Ende, hier kommt nichts mehr
+      
+      if (current == cause) // Wir wiederholen uns
+        break;
+      
+      cause = current;
+    }
+    
+    // Wenn eine gesuchte Exception angegeben wurde, haben wir sie hier nicht gefunden
+    return c != null ? null : cause;
+  }
+
   
   /**
    * Resettet die Uhrzeit eines Datums.
@@ -376,65 +762,3 @@ public class HBCIProperties
 
 }
 
-
-/**********************************************************************
- * $Log: HBCIProperties.java,v $
- * Revision 1.46  2011/05/27 11:33:23  willuhn
- * @N BUGZILLA 1056
- *
- * Revision 1.45  2011-05-12 08:08:27  willuhn
- * @N BUGZILLA 591
- *
- * Revision 1.44  2011-05-11 16:23:57  willuhn
- * @N BUGZILLA 591
- *
- * Revision 1.43  2011-05-10 11:51:15  willuhn
- * @R Marker entfernt
- *
- * Revision 1.42  2011-01-20 17:13:21  willuhn
- * @C HBCIProperties#startOfDay und HBCIProperties#endOfDay nach Jameica in DateUtil verschoben
- *
- * Revision 1.41  2010/06/14 23:00:59  willuhn
- * @C Dialog-Groesse angepasst
- * @N Datei-Auswahldialog mit nativem Ueberschreib-Hinweis
- *
- * Revision 1.40  2010/03/31 11:19:40  willuhn
- * @N Automatisches Entfernen nicht-zulaessiger Zeichen
- *
- * Revision 1.39  2009/10/26 15:58:54  willuhn
- * @C Account CRC check nur, wenn der Alg. bekannt ist
- *
- * Revision 1.38  2009/03/18 22:09:25  willuhn
- * *** empty log message ***
- *
- * Revision 1.37  2009/02/18 00:35:54  willuhn
- * @N Auslaendische Bankverbindungen im Adressbuch
- *
- * Revision 1.36  2009/02/17 00:00:02  willuhn
- * @N BUGZILLA 159 - Erster Code fuer Auslands-Ueberweisungen
- *
- * Revision 1.35  2009/02/12 23:55:57  willuhn
- * @N Erster Code fuer Unterstuetzung von Auslandsueberweisungen: In Tabelle "umsatz" die Spalte "empfaenger_konto" auf 40 Stellen erweitert und Eingabefeld bis max. 34 Stellen, damit IBANs gespeichert werden koennen
- *
- * Revision 1.34  2008/12/14 23:18:35  willuhn
- * @N BUGZILLA 188 - REFACTORING
- *
- * Revision 1.33  2008/11/30 22:33:56  willuhn
- * @N BUGZILLA 659 - Maximale PIN-Laenge nun 20 Zeichen
- *
- * Revision 1.32  2008/11/24 00:12:08  willuhn
- * @R Spezial-Umsatzparser entfernt - wird kuenftig direkt in HBCI4Java gemacht
- *
- * Revision 1.31  2008/11/04 11:55:16  willuhn
- * @N Update auf HBCI4Java 2.5.9
- *
- * Revision 1.30  2008/05/30 12:02:08  willuhn
- * @N Erster Code fuer erweiterte Verwendungszwecke - NOCH NICHT FREIGESCHALTET!
- *
- * Revision 1.29  2008/05/20 22:47:06  willuhn
- * @B "ß" wird bei Umwandlung in Grossbuchstaben zu "SS" und muss bei der Laengenpruefung daher doppelt gezaehlt werden
- *
- * Revision 1.28  2008/05/19 22:35:53  willuhn
- * @N Maximale Laenge von Kontonummern konfigurierbar (Soft- und Hardlimit)
- * @N Laengenpruefungen der Kontonummer in Dialogen und Fachobjekten
- **********************************************************************/

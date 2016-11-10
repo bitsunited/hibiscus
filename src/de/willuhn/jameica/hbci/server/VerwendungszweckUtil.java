@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/server/VerwendungszweckUtil.java,v $
- * $Revision: 1.10 $
- * $Date: 2011/08/10 10:46:50 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn software & services
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -15,7 +9,11 @@ package de.willuhn.jameica.hbci.server;
 
 import java.rmi.RemoteException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import org.apache.commons.lang.StringUtils;
 
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
@@ -25,9 +23,9 @@ import de.willuhn.jameica.hbci.rmi.SammelTransfer;
 import de.willuhn.jameica.hbci.rmi.SammelTransferBuchung;
 import de.willuhn.jameica.hbci.rmi.Transfer;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
-import de.willuhn.util.TypedProperties;
 
 
 
@@ -37,6 +35,76 @@ import de.willuhn.util.TypedProperties;
  */
 public class VerwendungszweckUtil
 {
+  /**
+   * Liste der bekannten Tags.
+   */
+  public static enum Tag
+  {
+    /**
+     * Ende-zu-Ende Referenz.
+     */
+    EREF,
+    
+    /**
+     * Kundenreferenz.
+     */
+    KREF,
+    
+    /**
+     * Mandatsreferenz.
+     */
+    MREF,
+    
+    /**
+     * Creditor-ID.
+     */
+    CRED,
+    
+    /**
+     * Debitor-ID.
+     */
+    DBET,
+    
+    /**
+     * Verwendungszweck.
+     */
+    SVWZ,
+    
+    /**
+     * Abweichender Auftraggeber.
+     */
+    ABWA,
+    
+    /**
+     * IBAN des Gegenkontos.
+     */
+    IBAN,
+    
+    /**
+     * BIC des Gegenkontos.
+     */
+    BIC,
+    
+    ;
+    
+    /**
+     * Sucht das Tag mit dem angegebenen Namen.
+     * @param s der Name des Tag.
+     * @return das Tag oder NULL, wenn es nicht gefunden wurde.
+     */
+    public static Tag byName(String s)
+    {
+      if (s == null)
+        return null;
+      for (Tag t:Tag.values())
+      {
+        if (t.name().equals(s))
+          return t;
+      }
+      return null;
+    }
+  }
+  
   /**
    * Splittet die Verwendungszweck-Zeilen am Zeilenumbruch.
    * @param lines die Zeilen.
@@ -69,6 +137,178 @@ public class VerwendungszweckUtil
   }
   
   /**
+   * Liefert den Wert des angegebenen Tag oder NULL, wenn er nicht gefunden wurde.
+   * @param t der Auftrag.
+   * @param tag das Tag.
+   * @return der Wert des Tag oder NULL, wenn es nicht gefunden wurde.
+   * @throws RemoteException
+   */
+  public static String getTag(Transfer t, Tag tag) throws RemoteException
+  {
+    if (tag == null)
+      return null;
+    Map<Tag,String> result = parse(t);
+
+    // Sonderrolle SVWZ.
+    // Bei den alten Buchungen gab es die Tags ja noch gar nicht.
+    // Heisst: Wenn SVWZ angefordert wurde, der Auftrag aber gar keine
+    // Tags enthaelt, wird der komplette originale Verwendungszweck zurueckgeliefert
+    if (result.size() == 0)
+    {
+      if (tag == Tag.SVWZ)
+        return toString(t);
+      
+      return null;
+    }
+      
+    return result.get(tag);
+  }
+
+  /**
+   * Parst die SEPA-Tags aus den Verwendungszwecken des Auftrages.
+   * @param t
+   * @return Map mit den geparsten Infos. Niemals NULL sondern hoechstens eine leere Map.
+   * @throws RemoteException
+   */
+  public static Map<Tag,String> parse(Transfer t) throws RemoteException
+  {
+    if (t == null)
+      return  new HashMap<Tag,String>();
+    
+    return parse(toArray(t));
+  }
+
+  /**
+   * Parst die SEPA-Tags aus den Verwendungszweck-Zeilen.
+   * @param lines die Verwendungszweck-Zeilen.
+   * @return Map mit den geparsten Infos. Niemals NULL sondern hoechstens eine leere Map.
+   * @throws RemoteException
+   */
+  public static Map<Tag,String> parse(String... lines) throws RemoteException
+  {
+    // Wir parsen erstmal alles mit "+".
+    Map<Tag,String> result = parse(true,'+',lines);
+    if (result == null || result.size() == 0)
+    {
+      // Vielleicht enthaelt es ja nur Tags mit Doppelpunkt?
+      return parse(true,':',lines);
+    }
+    
+    // Jetzt schauen wir, ob wir den Verwendungszweck per ":" noch weiter zerlegen koennen
+    String svwz = result.get(Tag.SVWZ);
+    if (StringUtils.trimToNull(svwz) != null)
+      result.putAll(parse(false,':',svwz));
+    
+    return result;
+  }
+  
+  /**
+   * Parst die SEPA-Tags aus den Verwendungszweck-Zeilen.
+   * @param leadingSvwz true, wenn ein fuehrerender Verwendungszweck ohne dediziertes Tag beachtet werden soll.
+   * @param sep das zu verwendende Trennzeichen.
+   * @param lines die Verwendungszweck-Zeilen.
+   * @return Map mit den geparsten Infos. Niemals NULL sondern hoechstens eine leere Map.
+   * @throws RemoteException
+   */
+  private static Map<Tag,String> parse(boolean leadingSvwz, char sep, String... lines) throws RemoteException
+  {
+    Map<Tag,String> result = new HashMap<Tag,String>();
+
+    if (lines == null || lines.length == 0)
+      return result;
+
+    String line = merge(lines);
+    int first = -1;
+
+    try
+    {
+
+      // Jetzt iterieren wir ueber die bekannten Tags. Wenn wir eines im Text finden, extrahieren
+      // wir alles bis zum naechsten Tag.
+      for (Tag tag:Tag.values())
+      {
+        int start = line.indexOf(tag.name()+sep); // Trenner dahinter, um sicherzustellen, dass sowas wie "EREF" nicht mitten im Text steht
+        if (start == -1)
+          continue; // Nicht gefunden
+
+        // Position des ersten Tag merken - brauchen wir weiter unten eventuell noch
+        if (first == -1 || start < first)
+          first = start;
+        
+        int next = 0;
+        
+        while (next < line.length()) // Wir suchen solange, bis wir am Ende angekommen sind.
+        {
+          int tagLen = tag.name().length() + 1; // Laenge des Tag + Trennzeichen
+          
+          // OK, wir haben das Tag. Jetzt suchen wir bis zum naechsten Tag.
+          next = line.indexOf(sep,start + tagLen + next);
+          if (next == -1)
+          {
+            // Kein weiteres Tag mehr da. Gehoert alles zum Tag.
+            result.put(tag,StringUtils.trimToEmpty(line.substring(start + tagLen).replace("\n","")));
+            break;
+          }
+          else
+          {
+            // Checken, ob vor dem "+" ein bekanntes Tag steht
+            String s = line.substring(next-4,next);
+            Tag found = Tag.byName(s);
+            if (found == null)
+            {
+              // Sonderfall BIC - nur 3 Zeichen lang?
+              found = Tag.byName(line.substring(next-3,next));
+            }
+            
+            // Ist ein bekanntes Tag. Also uebernehmen wir den Text genau bis dahin
+            if (found != null)
+            {
+              result.put(tag,StringUtils.trimToEmpty(line.substring(start + tagLen,next - found.name().length()).replace("\n","")));
+              break;
+            }
+          }
+        }
+      }
+      
+      // Noch eine Sonderrolle bei SVWZ. Es gibt Buchungen, die so aussehen:
+      // "Das ist eine Zeile ohne Tag\nKREF+Und hier kommt noch ein Tag".
+      // Sprich: Der Verwendungszweck enthaelt zwar Tags, der Verwendungszweck selbst hat aber keines
+      // sondern steht nur vorn dran.
+      // Wenn wir Tags haben, SVWZ aber fehlt, nehmen wir als SVWZ den Text bis zum ersten Tag
+      if (leadingSvwz && result.size() > 0 && !result.containsKey(Tag.SVWZ) && first > 0)
+      {
+        result.put(Tag.SVWZ,StringUtils.trimToEmpty(line.substring(0,first).replace("\n","")));
+      }
+      
+      // Sonderrolle IBAN. Wir entfernen alles bis zum ersten Leerzeichen. Siehe "testParse012". Da hinter der
+      // IBAN kein vernuenftiges Tag mehr kommt, wuerde sonst der ganze Rest da mit reinfallen. Aber nur, wenn
+      // es erst nach 22 Zeichen kommt. Sonst steht es mitten in der IBAN drin. In dem Fall entfernen wir die
+      // Leerzeichen aus der IBAN (siehe "testParse013")
+      String iban = StringUtils.trimToNull(result.get(Tag.IBAN));
+      if (iban != null)
+      {
+        int space = iban.indexOf(" ");
+        if (space > 21) // Wir beginnen ja bei 0 mit dem Zaehlen
+          result.put(Tag.IBAN,StringUtils.trimToEmpty(iban.substring(0,space)));
+        else if (space != -1)
+          result.put(Tag.IBAN,StringUtils.deleteWhitespace(iban));
+      }
+      
+      // testParse013: Leerzeichen aus der BIC entfernen
+      String bic = StringUtils.trimToNull(result.get(Tag.BIC));
+      if (bic != null)
+        result.put(Tag.BIC,StringUtils.deleteWhitespace(bic));
+        
+    }
+    catch (Exception e)
+    {
+      Logger.error("unable to parse line: " + line,e);
+      e.printStackTrace();
+    }
+    return result;
+  }
+  
+  /**
    * Verteilt die angegebenen Verwendungszweck-Zeilen auf zweck, zweck2 und zweck3.
    * @param t der Auftrag, in dem die Verwendungszweck-Zeilen gespeichert werden sollen.
    * @param lines die zu uebernehmenden Zeilen.
@@ -79,10 +319,50 @@ public class VerwendungszweckUtil
     if (t == null || lines == null || lines.length == 0)
       return;
     
-    List<String> l = clean(lines);
+    List<String> l = clean(true,lines);
     if (l.size() > 0) t.setZweck(l.remove(0));  // Zeile 1
     if (l.size() > 0) t.setZweck2(l.remove(0)); // Zeile 2
     if (l.size() > 0) t.setWeitereVerwendungszwecke(l.toArray(new String[l.size()])); // Zeile 3 - x
+  }
+  
+  /**
+   * Bricht die Verwendungszweck-Zeilen auf $limit Zeichen lange Haeppchen neu um.
+   * Jedoch nur, wenn wirklich Zeilen enthalten sind, die laenger sind.
+   * Andernfalls wird nichts umgebrochen.
+   * @param limit das Zeichen-Limit pro Zeile.
+   * @param lines die Zeilen.
+   * @return die neu umgebrochenen Zeilen.
+   */
+  public static String[] rewrap(int limit, String... lines)
+  {
+    if (lines == null || lines.length == 0)
+      return lines;
+    
+    boolean found = false;
+    for (String s:lines)
+    {
+      if (s != null && s.length() > limit)
+      {
+        found = true;
+        break;
+      }
+    }
+    if (!found)
+      return lines;
+
+    List<String> l = clean(true,lines);
+    
+    // Zu einem String mergen
+    StringBuffer sb = new StringBuffer();
+    for (String line:l)
+    {
+      sb.append(line);
+    }
+    String result = sb.toString();
+
+    // und neu zerlegen
+    String s = result.replaceAll("(.{" + limit + "})","$1--##--##");
+    return s.split("--##--##");
   }
   
   /**
@@ -97,7 +377,7 @@ public class VerwendungszweckUtil
     if (lines == null || lines.length == 0)
       return null;
     
-    List<String> cleaned = clean(lines);
+    List<String> cleaned = clean(false,lines);
     StringBuffer sb = new StringBuffer();
     for (String line:cleaned)
     {
@@ -128,7 +408,7 @@ public class VerwendungszweckUtil
     }
     
     String[] list = lines.toArray(new String[lines.size()]);
-    List<String> result = clean(list);
+    List<String> result = clean(false,list);
     return result.toArray(new String[result.size()]);
   }
 
@@ -183,10 +463,11 @@ public class VerwendungszweckUtil
    * Bereinigt die Verwendungszweck-Zeilen.
    * Hierbei werden leere Zeilen oder NULL-Elemente entfernt.
    * Ausserdem werden alle Zeilen getrimt.
+   * @param trim wenn die Zeilen-Enden getrimmt werden sollen.
    * @param lines die zu bereinigenden Zeilen.
    * @return die bereinigten Zeilen.
    */
-  private static List<String> clean(String... lines)
+  private static List<String> clean(boolean trim, String... lines)
   {
     List<String> result = new ArrayList<String>();
     if (lines == null || lines.length == 0)
@@ -196,7 +477,9 @@ public class VerwendungszweckUtil
     {
       if (line == null)
         continue;
-      line = line.trim();
+      
+      if (trim)
+        line = line.trim();
       if (line.length() > 0)
         result.add(line);
     }
@@ -212,8 +495,7 @@ public class VerwendungszweckUtil
    */
   public final static int getMaxUsageUeb(Konto konto) throws RemoteException
   {
-    TypedProperties bpd = DBPropertyUtil.getBPD(konto,DBPropertyUtil.BPD_QUERY_UEB);
-    return bpd.getInt("maxusage",HBCIProperties.HBCI_TRANSFER_USAGE_MAXNUM);
+    return HBCIProperties.HBCI_TRANSFER_USAGE_MAXNUM;
   }
 
   /**
@@ -265,18 +547,3 @@ public class VerwendungszweckUtil
     }
   }
 }
-
-
-/*********************************************************************
- * $Log: VerwendungszweckUtil.java,v $
- * Revision 1.10  2011/08/10 10:46:50  willuhn
- * @N Aenderungen nur an den DA-Eigenschaften zulassen, die gemaess BPD aenderbar sind
- * @R AccountUtil entfernt, Code nach VerwendungszweckUtil verschoben
- * @N Neue Abfrage-Funktion in DBPropertyUtil, um die BPD-Parameter zu Geschaeftsvorfaellen bequemer abfragen zu koennen
- *
- * Revision 1.9  2011-06-07 10:07:50  willuhn
- * @C Verwendungszweck-Handling vereinheitlicht/vereinfacht - geht jetzt fast ueberall ueber VerwendungszweckUtil
- *
- * Revision 1.8  2011-05-11 09:12:07  willuhn
- * @C Merge-Funktionen fuer den Verwendungszweck ueberarbeitet
- **********************************************************************/

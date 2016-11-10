@@ -22,6 +22,7 @@ import de.willuhn.jameica.gui.input.Input;
 import de.willuhn.jameica.gui.input.TextInput;
 import de.willuhn.jameica.hbci.TextSchluessel;
 import de.willuhn.jameica.hbci.gui.input.AddressInput;
+import de.willuhn.jameica.hbci.gui.input.KontoInput;
 import de.willuhn.jameica.hbci.gui.input.ReminderIntervalInput;
 import de.willuhn.jameica.hbci.gui.input.TerminInput;
 import de.willuhn.jameica.hbci.reminder.ReminderUtil;
@@ -98,23 +99,27 @@ public abstract class AbstractBaseUeberweisungControl extends AbstractTransferCo
       bu = (BaseUeberweisung) getTransfer();
       if (bu.ausgefuehrt()) // BUGZILLA 1197
         return true;
-      bu.transactionBegin();
-
+      
 			Date termin = (Date) getTermin().getValue();
 			bu.setTermin(termin);
       
       TextSchluessel s = (TextSchluessel) getTextSchluessel().getValue();
       bu.setTextSchluessel(s == null ? null : s.getCode());
 
+      bu.transactionBegin();
 			if (super.handleStore())
 			{
 	      // Reminder-Intervall speichern
 	      ReminderIntervalInput input = this.getReminderInterval();
 	      if (input.containsInterval())
-	        ReminderUtil.apply(bu,(ReminderInterval) input.getValue());
+	        ReminderUtil.apply(bu,(ReminderInterval) input.getValue(), input.getEnd());
 
 	      bu.transactionCommit();
 	      return true;
+			}
+			else
+			{
+			  bu.transactionRollback();
 			}
 		}
     catch (Exception e)
@@ -193,9 +198,9 @@ public abstract class AbstractBaseUeberweisungControl extends AbstractTransferCo
    * @see de.willuhn.jameica.hbci.gui.controller.AbstractTransferControl#getKontoAuswahl()
    * Ueberschrieben, um das Control zu deaktivieren, wenn die Ueberweisung bereits ausgefuehrt wurde.
    */
-  public Input getKontoAuswahl() throws RemoteException
+  public KontoInput getKontoAuswahl() throws RemoteException
   {
-		Input i = super.getKontoAuswahl();
+    KontoInput i = super.getKontoAuswahl();
 		i.setEnabled(!((Terminable)getTransfer()).ausgefuehrt());
 		return i;
   }

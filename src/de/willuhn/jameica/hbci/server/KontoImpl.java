@@ -18,7 +18,7 @@ import java.sql.SQLException;
 import java.util.Date;
 import java.util.zip.CRC32;
 
-import org.kapott.hbci.manager.HBCIUtils;
+import org.apache.commons.lang.StringUtils;
 
 import de.willuhn.datasource.rmi.DBIterator;
 import de.willuhn.datasource.rmi.ResultSetExtractor;
@@ -32,6 +32,10 @@ import de.willuhn.jameica.hbci.rmi.Lastschrift;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
 import de.willuhn.jameica.hbci.rmi.SammelLastschrift;
 import de.willuhn.jameica.hbci.rmi.SammelUeberweisung;
+import de.willuhn.jameica.hbci.rmi.SepaDauerauftrag;
+import de.willuhn.jameica.hbci.rmi.SepaLastschrift;
+import de.willuhn.jameica.hbci.rmi.SepaSammelLastschrift;
+import de.willuhn.jameica.hbci.rmi.SepaSammelUeberweisung;
 import de.willuhn.jameica.hbci.rmi.Ueberweisung;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.jameica.system.Application;
@@ -81,7 +85,7 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
   {
     try
     {
-      if (getName() == null || getName().length() == 0)
+      if (StringUtils.trimToNull(getName()) == null)
         throw new ApplicationException(i18n.tr("Bitten geben Sie den Namen des Kontoinhabers ein."));
 
       HBCIProperties.checkLength(getName(), HBCIProperties.HBCI_TRANSFER_NAME_MAXLENGTH);
@@ -99,7 +103,7 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
       HBCIProperties.checkLength(getUnterkonto(), HBCIProperties.HBCI_ID_MAXLENGTH);
 
       if (getKundennummer() == null || getKundennummer().length() == 0)
-        throw new ApplicationException(i18n.tr("Bitte geben Sie Ihre Kundennummer ein."));
+        throw new ApplicationException(i18n.tr("Bitte geben Sie Ihre Kundenkennung ein."));
 
       // BUGZILLA 29 http://www.willuhn.de/bugzilla/show_bug.cgi?id=29
       if (getWaehrung() == null || getWaehrung().length() != 3)
@@ -117,13 +121,11 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
       {
         HBCIProperties.checkLength(iban, HBCIProperties.HBCI_IBAN_MAXLENGTH);
         HBCIProperties.checkChars(iban, HBCIProperties.HBCI_IBAN_VALIDCHARS);
-        if (!HBCIProperties.checkIBANCRC(iban))
-          throw new ApplicationException(i18n.tr("Ungültige IBAN. Bitte prüfen Sie Ihre Eingaben."));
+        HBCIProperties.getIBAN(iban);
       }
       if (bic != null && bic.length() > 0)
       {
-        HBCIProperties.checkLength(bic, HBCIProperties.HBCI_BIC_MAXLENGTH);
-        HBCIProperties.checkChars(bic, HBCIProperties.HBCI_BIC_VALIDCHARS);
+        HBCIProperties.checkBIC(bic);
       }
       //
       //////////////////////////////////////////////////////////////////////////
@@ -175,6 +177,24 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
   {
     return (String) getAttribute("passport_class");
   }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#getBackendClass()
+   */
+  @Override
+  public String getBackendClass() throws RemoteException
+  {
+    return (String) getAttribute("backend_class");
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#getAccountType()
+   */
+  @Override
+  public Integer getAccountType() throws RemoteException
+  {
+    return (Integer) getAttribute("acctype");
+  }
 
   /**
    * @see de.willuhn.jameica.hbci.rmi.Konto#setKontonummer(java.lang.String)
@@ -206,6 +226,24 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
   public void setPassportClass(String passport) throws RemoteException
   {
     setAttribute("passport_class", passport);
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#setBackendClass(java.lang.String)
+   */
+  @Override
+  public void setBackendClass(String backend) throws RemoteException
+  {
+    setAttribute("backend_class", backend);
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#setAccountType(java.lang.Integer)
+   */
+  @Override
+  public void setAccountType(Integer i) throws RemoteException
+  {
+    setAttribute("acctype",i);
   }
 
   /**
@@ -243,6 +281,15 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
         da.delete();
       }
 
+      // dann die SEPA-Dauerauftraege
+      list = getSepaDauerauftraege();
+      SepaDauerauftrag sda = null;
+      while (list.hasNext())
+      {
+        sda = (SepaDauerauftrag) list.next();
+        sda.delete();
+      }
+      
       // noch die Lastschriften
       list = getLastschriften();
       Lastschrift ls = null;
@@ -286,6 +333,33 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
       {
         au = (AuslandsUeberweisung) list.next();
         au.delete();
+      }
+
+      // SEPA-Lastschriften
+      list = getSepaLastschriften();
+      SepaLastschrift sl = null;
+      while (list.hasNext())
+      {
+        sl = (SepaLastschrift) list.next();
+        sl.delete();
+      }
+
+      // SEPA-Sammellastschriften
+      list = getSepaSammelLastschriften();
+      SepaSammelLastschrift ssl = null;
+      while (list.hasNext())
+      {
+        ssl = (SepaSammelLastschrift) list.next();
+        ssl.delete();
+      }
+
+      // SEPA-Sammelueberweisungen
+      list = getSepaSammelUeberweisungen();
+      SepaSammelUeberweisung ssu = null;
+      while (list.hasNext())
+      {
+        ssu = (SepaSammelUeberweisung) list.next();
+        ssu.delete();
       }
 
       // und noch die Protokolle
@@ -452,6 +526,40 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
     list.setOrder("ORDER BY " + service.getSQLTimestamp("termin") + " DESC");
     return list;
   }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#getSepaLastschriften()
+   */
+  public DBIterator getSepaLastschriften() throws RemoteException
+  {
+    HBCIDBService service = (HBCIDBService) getService();
+
+    DBIterator list = service.createList(SepaLastschrift.class);
+    list.addFilter("konto_id = " + getID());
+
+    list.setOrder("ORDER BY " + service.getSQLTimestamp("termin") + " DESC");
+    return list;
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#getSepaSammelLastschriften()
+   */
+  public DBIterator getSepaSammelLastschriften() throws RemoteException
+  {
+    DBIterator list = getService().createList(SepaSammelLastschrift.class);
+    list.addFilter("konto_id = " + getID());
+    return list;
+  }
+
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#getSepaSammelUeberweisungen()
+   */
+  public DBIterator getSepaSammelUeberweisungen() throws RemoteException
+  {
+    DBIterator list = getService().createList(SepaSammelUeberweisung.class);
+    list.addFilter("konto_id = " + getID());
+    return list;
+  }
 
   /**
    * @see de.willuhn.jameica.hbci.rmi.Konto#getDauerauftraege()
@@ -463,6 +571,16 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
     return list;
   }
 
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#getSepaDauerauftraege()
+   */
+  public DBIterator getSepaDauerauftraege() throws RemoteException
+  {
+    DBIterator list = getService().createList(SepaDauerauftrag.class);
+    list.addFilter("konto_id = " + getID());
+    return list;
+  }
+  
   /**
    * @see de.willuhn.jameica.hbci.rmi.Konto#getLastschriften()
    */
@@ -580,25 +698,37 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
 
     if ("longname".equals(arg0))
     {
-      String bez = getBezeichnung();
-      String blz = getBLZ();
-      String kto = getKontonummer();
+      String bez  = getBezeichnung();
+      String blz  = getBLZ();
+      String kto  = getKontonummer();
+      String iban = getIban();
+      String bic  = getBic();
+      
+      boolean haveBic = bic != null && bic.length() > 0;
+      boolean haveIban = iban != null && iban.length() > 0;
+      String name = null;
+      
       try
       {
-        String name = HBCIUtils.getNameForBLZ(blz);
-        if (name != null && name.length() > 0)
-          blz = name;
-        else
-          blz = i18n.tr("BLZ") + ": " + blz;
+        name = HBCIProperties.getNameForBank(haveBic ? bic : blz);
       }
       catch (Exception e)
       {
         // ignore
       }
+      
+      if (name == null)
+        name = haveBic ? (i18n.tr("BIC") + ": " + bic) : (i18n.tr("BLZ") + ": " + blz);
+        
+      // Wir muessen die IBAN etwas verkuerzt anzeigen. Das passt sonst nicht hin.
+      if (haveIban)
+        kto = StringUtils.abbreviateMiddle(iban,"..",14);
+      
+      String k = i18n.tr(haveIban ? "IBAN" : "Kto.");
 
       if (bez != null && bez.length() > 0)
-        return i18n.tr("{0}, Kto. {1} [{2}]", new String[] { bez, kto, blz });
-      return i18n.tr("Kto. {0} [{1}]", new String[] { kto, blz });
+        return bez + ", " + k + " " + kto + " [" + name + "]";
+      return k + " " + kto + " [" + name + "]";
     }
 
     return super.getAttribute(arg0);
@@ -756,103 +886,20 @@ public class KontoImpl extends AbstractHibiscusDBObject implements Konto
   {
     setAttribute("iban",iban);
   }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#getKategorie()
+   */
+  public String getKategorie() throws RemoteException
+  {
+    return (String) this.getAttribute("kategorie");
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.Konto#setKategorie(java.lang.String)
+   */
+  public void setKategorie(String kategorie) throws RemoteException
+  {
+    this.setAttribute("kategorie",kategorie);
+  }
 }
-
-/*******************************************************************************
- * $Log: KontoImpl.java,v $
- * Revision 1.113  2012/05/03 21:50:47  willuhn
- * @B BUGZILLA 1232 - Saldo des Kontos bei Offline-Konten nur bei neuen Umsaetzen uebernehmen - nicht beim Bearbeiten existierender
- *
- * Revision 1.112  2012/04/05 21:44:18  willuhn
- * @B BUGZILLA 1219
- *
- * Revision 1.111  2011/10/18 09:28:14  willuhn
- * @N Gemeinsames Basis-Interface "HibiscusDBObject" fuer alle Entities (ausser Version und DBProperty) mit der Implementierung "AbstractHibiscusDBObject". Damit koennen jetzt zu jedem Fachobjekt beliebige Meta-Daten in der Datenbank gespeichert werden. Wird im ersten Schritt fuer die Reminder verwendet, um zu einem Auftrag die UUID des Reminders am Objekt speichern zu koennen
- *
- * Revision 1.110  2011-05-27 11:33:23  willuhn
- * @N BUGZILLA 1056
- *
- * Revision 1.109  2011-01-20 17:13:21  willuhn
- * @C HBCIProperties#startOfDay und HBCIProperties#endOfDay nach Jameica in DateUtil verschoben
- *
- * Revision 1.108  2010-12-14 12:48:00  willuhn
- * @B Cache wurde nicht immer korrekt aktualisiert, was dazu fuehren konnte, dass sich das Aendern/Loeschen/Anlegen von Kategorien erst nach 10 Sekunden auswirkte und bis dahin Umsaetze der Kategorie "nicht zugeordnet" zugewiesen wurden, obwohl sie in einer Kategorie waren
- *
- * Revision 1.107  2010-09-29 23:46:18  willuhn
- * @B Auslandsueberweisungen wurden nicht mitgeloescht
- *
- * Revision 1.106  2010-08-26 12:53:08  willuhn
- * @N Cache nur befuellen, wenn das explizit gefordert wird. Andernfalls wuerde der Cache u.U. unnoetig gefuellt werden, obwohl nur ein Objekt daraus geloescht werden soll
- *
- * Revision 1.105  2010-08-26 11:31:23  willuhn
- * @N Neuer Cache. In dem werden jetzt die zugeordneten Konten von Auftraegen und Umsaetzen zwischengespeichert sowie die Umsatz-Kategorien. Das beschleunigt das Laden der Umsaetze und Auftraege teilweise erheblich
- *
- * Revision 1.104  2010/06/17 12:32:56  willuhn
- * @N BUGZILLA 530
- *
- * Revision 1.103  2010/06/17 12:16:52  willuhn
- * @N BUGZILLA 530
- *
- * Revision 1.102  2010/06/07 22:41:14  willuhn
- * @N BUGZILLA 844/852
- *
- * Revision 1.101  2010/04/25 20:55:28  willuhn
- * @B BUGZILLA 852
- *
- * Revision 1.100  2010/04/22 16:10:43  willuhn
- * @C Saldo kann bei Offline-Konten zwar nicht manuell bearbeitet werden, dafuer wird er aber beim Zuruecksetzen des Kontos (heisst jetzt "Saldo und Datum zuruecksetzen" statt "Kontoauszugsdatum zuruecksetzen") jetzt ebenfalls geloescht
- *
- * Revision 1.99  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.98  2009/09/15 00:23:35  willuhn
- * @N BUGZILLA 745
- *
- * Revision 1.97  2009/03/17 23:44:15  willuhn
- * @N BUGZILLA 159 - Auslandsueberweisungen. Erste Version
- *
- * Revision 1.96  2009/01/26 23:17:46  willuhn
- * @R Feld "synchronize" aus Konto-Tabelle entfernt. Aufgrund der Synchronize-Optionen pro Konto ist die Information redundant und ergibt sich implizit, wenn fuer ein Konto irgendeine der Synchronisations-Optionen aktiviert ist
- *
- * Revision 1.95  2009/01/04 17:43:29  willuhn
- * @N BUGZILLA 532
- *
- * Revision 1.94  2009/01/04 16:18:22  willuhn
- * @N BUGZILLA 404 - Kontoauswahl via SelectBox
- *
- * Revision 1.93  2009/01/03 23:23:38  willuhn
- * @N Unterkontonummer wird jetzt fuer Checksumme mit beruecksichtigt - konnte vorher dazu fuehren, dass zwei eigentlich verschiedene Konten als identisch angesehen wurden
- *
- * Revision 1.92  2008/12/15 10:28:14  willuhn
- * *** empty log message ***
- *
- * Revision 1.91  2008/05/19 22:35:53  willuhn
- * @N Maximale Laenge von Kontonummern konfigurierbar (Soft- und Hardlimit)
- * @N Laengenpruefungen der Kontonummer in Dialogen und Fachobjekten
- *
- * Revision 1.90  2008/04/27 22:22:56  willuhn
- * @C I18N-Referenzen statisch
- *
- * Revision 1.89  2007/12/11 12:23:26  willuhn
- * @N Bug 355
- *
- * Revision 1.88  2007/08/12 22:02:10  willuhn
- * @C BUGZILLA 394 - restliche Umstellungen von Valuta auf Buchungsdatum
- *
- * Revision 1.87  2007/08/07 23:54:15  willuhn
- * @B Bug 394 - Erster Versuch. An einigen Stellen (z.Bsp. konto.getAnfangsSaldo) war ich mir noch nicht sicher. Heiner?
- *
- * Revision 1.86  2007/07/16 12:51:15  willuhn
- * @D javadoc
- *
- * Revision 1.85  2007/06/04 15:59:23  jost
- * Neue Auswertung: Einnahmen/Ausgaben
- * Revision 1.84 2007/04/19 18:12:21 willuhn
- * 
- * @N MySQL-Support (GUI zum Konfigurieren fehlt noch)
- * 
- * Revision 1.83 2007/04/02 23:01:17 willuhn
- * @D diverse Javadoc-Warnings
- * @C Umstellung auf neues SelectInput
- ******************************************************************************/

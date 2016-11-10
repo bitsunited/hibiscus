@@ -34,6 +34,7 @@ import de.willuhn.jameica.hbci.gui.action.EmpfaengerAdd;
 import de.willuhn.jameica.hbci.gui.dialogs.VerwendungszweckDialog;
 import de.willuhn.jameica.hbci.gui.filter.AddressFilter;
 import de.willuhn.jameica.hbci.gui.filter.KontoFilter;
+import de.willuhn.jameica.hbci.gui.input.AccountInput;
 import de.willuhn.jameica.hbci.gui.input.AddressInput;
 import de.willuhn.jameica.hbci.gui.input.BLZInput;
 import de.willuhn.jameica.hbci.gui.input.KontoInput;
@@ -58,7 +59,7 @@ public abstract class AbstractTransferControl extends AbstractControl
 	private Konto konto											   = null;
 	
 	// Eingabe-Felder
-	private Input kontoAuswahl			           = null;
+	private KontoInput kontoAuswahl			       = null;
 	private Input betrag										   = null;
 	private TextInput zweck									   = null;
 	private DialogInput zweck2							   = null;
@@ -107,14 +108,15 @@ public abstract class AbstractTransferControl extends AbstractControl
    * @return Auswahl-Feld.
    * @throws RemoteException
    */
-  public Input getKontoAuswahl() throws RemoteException
+  public KontoInput getKontoAuswahl() throws RemoteException
 	{
 		if (this.kontoAuswahl != null)
 		  return this.kontoAuswahl;
 		
     Konto k = getKonto();
     KontoListener kl = new KontoListener();
-		this.kontoAuswahl = new KontoInput(k,KontoFilter.ACTIVE);
+		this.kontoAuswahl = new KontoInput(k,getTransfer().isNewObject() ? KontoFilter.ONLINE : KontoFilter.ALL); // Falls nachtraeglich das Konto deaktiviert wurde
+    this.kontoAuswahl.setRememberSelection("auftraege",false); // BUGZILLA 1362 - zuletzt ausgewaehltes Konto gleich uebernehmen
 		this.kontoAuswahl.setName(i18n.tr("Persönliches Konto"));
 		this.kontoAuswahl.setMandatory(true);
     this.kontoAuswahl.addListener(kl);
@@ -152,22 +154,12 @@ public abstract class AbstractTransferControl extends AbstractControl
 		if (empfkto != null)
 			return empfkto;
 
-		empfkto = new TextInput(getTransfer().getGegenkontoNummer(),HBCIProperties.HBCI_KTO_MAXLENGTH_SOFT);
+		empfkto = new AccountInput(getTransfer().getGegenkontoNummer(),HBCIProperties.HBCI_KTO_MAXLENGTH_SOFT);
 		empfkto.setName(i18n.tr("Kontonummer"));
 		empfkto.setComment("");
-    empfkto.setValidChars(HBCIProperties.HBCI_KTO_VALIDCHARS + " ");
+    empfkto.setValidChars(HBCIProperties.HBCI_KTO_VALIDCHARS);
     empfkto.setMandatory(true);
     empfkto.addListener(new KontonummerListener());
-    empfkto.addListener(new Listener()
-    {
-      public void handleEvent(Event event)
-      {
-        String s = (String) empfkto.getValue();
-        if (s == null || s.length() == 0 || s.indexOf(" ") == -1)
-          return;
-        empfkto.setValue(s.replaceAll(" ",""));
-      }
-    });
 		return empfkto;
 	}
 
@@ -337,8 +329,6 @@ public abstract class AbstractTransferControl extends AbstractControl
 
       if (t.getBetrag() > Settings.getUeberweisungLimit())
         GUI.getView().setErrorText(i18n.tr("Warnung: Auftragslimit überschritten: {0} ", HBCI.DECIMALFORMAT.format(Settings.getUeberweisungLimit()) + " " + getKonto().getWaehrung()));
-      else
-        GUI.getView().setErrorText(""); // Fehlertext entfernen
       
       return true;
 		}

@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/controller/EinnahmeAusgabeControl.java,v $
- * $Revision: 1.21 $
- * $Date: 2012/04/23 21:03:41 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by Heiner Jostkleigrewe
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -17,8 +11,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import org.eclipse.swt.widgets.Event;
-import org.eclipse.swt.widgets.Listener;
 import org.eclipse.swt.widgets.TableItem;
 
 import de.willuhn.datasource.rmi.DBIterator;
@@ -29,7 +21,6 @@ import de.willuhn.jameica.gui.formatter.CurrencyFormatter;
 import de.willuhn.jameica.gui.formatter.TableFormatter;
 import de.willuhn.jameica.gui.input.DateInput;
 import de.willuhn.jameica.gui.input.Input;
-import de.willuhn.jameica.gui.input.SelectInput;
 import de.willuhn.jameica.gui.parts.TablePart;
 import de.willuhn.jameica.gui.util.Color;
 import de.willuhn.jameica.gui.util.Font;
@@ -40,8 +31,10 @@ import de.willuhn.jameica.hbci.gui.filter.KontoFilter;
 import de.willuhn.jameica.hbci.gui.input.DateFromInput;
 import de.willuhn.jameica.hbci.gui.input.DateToInput;
 import de.willuhn.jameica.hbci.gui.input.KontoInput;
+import de.willuhn.jameica.hbci.gui.input.RangeInput;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.server.EinnahmeAusgabe;
+import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.util.DateUtil;
 import de.willuhn.logging.Logger;
@@ -54,9 +47,10 @@ public class EinnahmeAusgabeControl extends AbstractControl
 {
   private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
 
-  private SelectInput kontoAuswahl = null;
+  private KontoInput kontoAuswahl  = null;
   private DateInput start          = null;
   private DateInput end            = null;
+  private RangeInput range         = null;
 
   private TablePart table          = null;
 
@@ -81,20 +75,10 @@ public class EinnahmeAusgabeControl extends AbstractControl
 
     this.kontoAuswahl = new KontoInput(null,KontoFilter.ALL);
     this.kontoAuswahl.setPleaseChoose(i18n.tr("<Alle Konten>"));
-    this.kontoAuswahl.addListener(new Listener()
-    {
-      public void handleEvent(Event event)
-      {
-        try
-        {
-          handleReload();
-        }
-        catch (RemoteException e)
-        {
-          Logger.error("error while reloading table",e);
-        }
-      }
-    });
+    this.kontoAuswahl.setSupportGroups(true);
+    this.kontoAuswahl.setComment(null);
+    this.kontoAuswahl.setRememberSelection("auswertungen.einnahmeausgabe");
+    
     return this.kontoAuswahl;
   }
 
@@ -108,7 +92,22 @@ public class EinnahmeAusgabeControl extends AbstractControl
       return this.start;
 
     this.start = new DateFromInput(null,"umsatzlist.filter.from");
+    this.start.setName(i18n.tr("Von"));
+    this.start.setComment(null);
     return this.start;
+  }
+  
+  /**
+   * Liefert eine Auswahl mit Zeit-Presets.
+   * @return eine Auswahl mit Zeit-Presets.
+   */
+  public RangeInput getRange()
+  {
+    if (this.range != null)
+      return this.range;
+    
+    this.range = new RangeInput(this.getStart(),this.getEnd(),"umsatzlist.filter.range");
+    return this.range;
   }
 
   /**
@@ -121,6 +120,8 @@ public class EinnahmeAusgabeControl extends AbstractControl
       return this.end;
 
     this.end = new DateToInput(null,"umsatzlist.filter.to");
+    this.end.setName(i18n.tr("bis"));
+    this.end.setComment(null);
     return this.end;
   }
 
@@ -160,7 +161,7 @@ public class EinnahmeAusgabeControl extends AbstractControl
           double plusminus = ea.getPlusminus();
           if (summe)
           {
-            item.setForeground(Color.WIDGET_FG.getSWTColor());
+            item.setForeground(Color.FOREGROUND.getSWTColor());
           }
           else
           {
@@ -190,18 +191,18 @@ public class EinnahmeAusgabeControl extends AbstractControl
   {
     List<EinnahmeAusgabe> list = new ArrayList<EinnahmeAusgabe>();
 
-    Konto konto = (Konto) getKontoAuswahl().getValue();
     Date start  = (Date) this.getStart().getValue();
     Date end    = (Date) this.getEnd().getValue();
-    
+    Object o    = getKontoAuswahl().getValue();
+
     // Uhrzeit zuruecksetzen, falls vorhanden
     if (start != null) start = DateUtil.startOfDay(start);
     if (end != null) end = DateUtil.startOfDay(end);
 
     // Wird nur ein Konto ausgewertet?
-    if (konto != null)
+    if (o != null && (o instanceof Konto))
     {
-      list.add(new EinnahmeAusgabe(konto,start,end));
+      list.add(new EinnahmeAusgabe((Konto) o,start,end));
       return list;
     }
     
@@ -212,7 +213,10 @@ public class EinnahmeAusgabeControl extends AbstractControl
     double summeEndsaldo     = 0.0d;
     
     DBIterator it = de.willuhn.jameica.hbci.Settings.getDBService().createList(Konto.class);
-    it.setOrder("ORDER BY blz, kontonummer");
+    // Einschraenken auf gewaehlte Kontogruppe
+    if (o != null && (o instanceof String))
+      it.addFilter("kategorie = ?", (String) o);
+    it.setOrder("ORDER BY LOWER(kategorie), blz, kontonummer, bezeichnung");
     while (it.hasNext())
     {
       EinnahmeAusgabe ea = new EinnahmeAusgabe((Konto) it.next(),start,end);
@@ -242,66 +246,30 @@ public class EinnahmeAusgabeControl extends AbstractControl
 
   /**
    * Aktualisiert die Tabelle.
-   * @throws RemoteException
    */
-  public void handleReload() throws RemoteException
+  public void handleReload()
   {
-    TablePart table = this.getTable();
-    table.removeAll();
-    
-    Date tStart = (Date) getStart().getValue();
-    Date tEnd = (Date) getEnd().getValue();
-    if (tStart != null && tEnd != null && tStart.after(tEnd))
+    try
     {
-      GUI.getView().setErrorText(i18n.tr("Das Anfangsdatum muss vor dem Enddatum liegen"));
-      return;
-    }
-    GUI.getView().setErrorText(""); // ggf. vorher angezeigten Fehler loeschen
+      TablePart table = this.getTable();
+      table.removeAll();
+      
+      Date tStart = (Date) getStart().getValue();
+      Date tEnd = (Date) getEnd().getValue();
+      if (tStart != null && tEnd != null && tStart.after(tEnd))
+      {
+        GUI.getView().setErrorText(i18n.tr("Das Anfangsdatum muss vor dem Enddatum liegen"));
+        return;
+      }
 
-    List<EinnahmeAusgabe> list = this.getWerte();
-    for (EinnahmeAusgabe ea:list)
-      table.addItem(ea);
+      List<EinnahmeAusgabe> list = this.getWerte();
+      for (EinnahmeAusgabe ea:list)
+        table.addItem(ea);
+    }
+    catch (RemoteException re)
+    {
+      Logger.error("unable to redraw table",re);
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Aktualisieren"), StatusBarMessage.TYPE_ERROR));
+    }
   }
 }
-
-/*******************************************************************************
- * $Log: EinnahmeAusgabeControl.java,v $
- * Revision 1.21  2012/04/23 21:03:41  willuhn
- * @N BUGZILLA 1227
- *
- * Revision 1.20  2011/12/18 23:20:20  willuhn
- * @N GUI-Politur
- *
- * Revision 1.19  2011-08-05 11:21:58  willuhn
- * @N Erster Code fuer eine Umsatz-Preview
- * @C Compiler-Warnings
- * @N DateFromInput/DateToInput - damit sind die Felder fuer den Zeitraum jetzt ueberall einheitlich
- *
- * Revision 1.18  2011-01-20 17:13:21  willuhn
- * @C HBCIProperties#startOfDay und HBCIProperties#endOfDay nach Jameica in DateUtil verschoben
- *
- * Revision 1.17  2010-08-24 17:38:04  willuhn
- * @N BUGZILLA 896
- *
- * Revision 1.16  2010/06/07 22:41:13  willuhn
- * @N BUGZILLA 844/852
- *
- * Revision 1.15  2010/04/09 09:31:03  willuhn
- * @B BUGZILLA 844
- *
- * Revision 1.14  2010/02/17 10:43:41  willuhn
- * @N Differenz in Einnahmen/Ausgaben anzeigen, Cleanup
- *
- * Revision 1.13  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.12  2009/10/07 23:08:56  willuhn
- * @N BUGZILLA 745: Deaktivierte Konten in Auswertungen zwar noch anzeigen, jedoch mit "[]" umschlossen. Bei der Erstellung von neuen Auftraegen bleiben sie jedoch ausgeblendet. Bei der Gelegenheit wird das Default-Konto jetzt mit ">" markiert
- *
- * Revision 1.11  2009/04/05 21:16:22  willuhn
- * @B BUGZILLA 716
- *
- * Revision 1.10  2009/01/12 00:46:50  willuhn
- * @N Vereinheitlichtes KontoInput in den Auswertungen
- ******************************************************************************/

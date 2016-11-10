@@ -20,6 +20,7 @@ import de.willuhn.annotation.Lifecycle.Type;
 import de.willuhn.datasource.BeanUtil;
 import de.willuhn.datasource.rmi.DBIterator;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.MetaKey;
 import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.reminder.ReminderStorageProviderHibiscus;
 import de.willuhn.jameica.hbci.rmi.HBCIDBService;
@@ -86,7 +87,7 @@ public abstract class AbstractTransferScheduleProvider<T extends Terminable & Hi
       while (this.list.hasNext())
       {
         T u = (T) this.list.next();
-        String uuid = u.getMeta("reminder.uuid",null);
+        String uuid = MetaKey.REMINDER_UUID.get(u);
         Date termin = u.getTermin();
         
         // a) Auftrag existiert. Wenn er ins Zeitfenster passt, wird er verwendet
@@ -104,11 +105,15 @@ public abstract class AbstractTransferScheduleProvider<T extends Terminable & Hi
           ReminderInterval ri = reminder != null ? reminder.getReminderInterval() : null;
           if (ri != null)
           {
+            Date last = reminder.getEnd();
             List<Date> dates = ri.getDates(termin,new Date(termin.getTime()+1),end); // nicht ab start sondern ab (exclusive) erster Ausfuehrung
             
             // Wenn wir Termine haben, fuegen wir sie hinzu
             for (Date date:dates)
             {
+              if (last != null && date.after(last)) // bereits abgelaufen
+                continue;
+              
               // wir zeigen nur die kuenftigen an. Die vergangenen im
               // im aktuellen Zeitraum wurden ja schon automatisch erstellt
               // und wurden daher schon von a) erfasst

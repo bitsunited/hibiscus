@@ -23,6 +23,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.velocity.Template;
 import org.apache.velocity.VelocityContext;
 import org.apache.velocity.app.VelocityEngine;
@@ -31,6 +32,7 @@ import de.willuhn.io.FileFinder;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.services.VelocityService;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.jameica.system.Settings;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
@@ -41,6 +43,7 @@ import de.willuhn.util.ProgressMonitor;
  */
 public class VelocityExporter implements Exporter
 {
+  private final static Settings settings = new Settings(VelocityExporter.class);
   private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
   private Map<Class,IOFormat[]> formats  = new HashMap<Class,IOFormat[]>();
   
@@ -66,12 +69,17 @@ public class VelocityExporter implements Exporter
     Logger.debug("preparing velocity context");
     VelocityContext context = new VelocityContext();
 
+    String encoding = settings.getString("file.encoding",System.getProperty("file.encoding")); // BUGZILLA 1358
+    Logger.info("used encoding: " + encoding);
+    
     context.put("datum",         new Date());
-    context.put("charset",       System.getProperty("file.encoding")); // BUGZILLA 328
+    context.put("charset",       encoding); // BUGZILLA 328
     context.put("dateformat",    HBCI.DATEFORMAT);
     context.put("longdateformat",HBCI.LONGDATEFORMAT);
     context.put("decimalformat", HBCI.DECIMALFORMAT);
     context.put("objects",       objects);
+    context.put("filter",        new Filter());
+    context.put("session",       Exporter.SESSION);
     
     BufferedWriter writer = null;
     try
@@ -81,7 +89,7 @@ public class VelocityExporter implements Exporter
         monitor.setStatusText(i18n.tr("Exportiere Daten"));
         monitor.addPercentComplete(4);
       }
-      writer = new BufferedWriter(new OutputStreamWriter(os));
+      writer = new BufferedWriter(new OutputStreamWriter(os,encoding));
 
       VelocityService service = (VelocityService) Application.getBootLoader().getBootable(VelocityService.class);
       VelocityEngine engine = service.getEngine(HBCI.class.getName());
@@ -141,7 +149,8 @@ public class VelocityExporter implements Exporter
     
     File dir = new File(Application.getPluginLoader().getPlugin(HBCI.class).getManifest().getPluginDir() + File.separator + "lib","velocity");
     FileFinder finder = new FileFinder(dir);
-    String cn = type.getName().replaceAll("\\.","\\\\."); // "." gegen "\." ersetzen (Escaping fuer folgenden Regex)
+    String cn = type.getName().replace(".","\\."); // "." gegen "\." ersetzen (Escaping fuer folgenden Regex)
+    cn = cn.replace("$","\\$"); // Fuer Inner Classes
     finder.matches(cn + ".*?\\.vm$");
 
     File[] found = finder.findRecursive();
@@ -231,18 +240,32 @@ public class VelocityExporter implements Exporter
       return this.template;
     }
   }
+  
+  /**
+   * Hilfsklasse zum Escapen von Strings in der CSV-Datei.
+   */
+  public class Filter
+  {
+    /**
+     * Escaped den angegebenen String fuer CSV.
+     * @param s der zu escapende String.
+     * @return der escapte String.
+     */
+    public String escape(String s)
+    {
+      if (StringUtils.isEmpty(s))
+        return s;
+
+      // Double-Quote mit Double-Quote escapen
+      // Siehe https://tools.ietf.org/html/rfc4180#section-2, Absatz 7
+      // BUGZILLA 1336
+      s = s.replace("\"","\"\"");
+      
+      // Zeilenumbrueche gegen Leerzeichen ersetzen
+      s = s.replaceAll("[\n\r]"," ");
+      
+      return s;
+    }
+  }
 
 }
-
-
-/**********************************************************************
- * $Log: VelocityExporter.java,v $
- * Revision 1.20  2011/05/05 09:06:47  willuhn
- * @N Neues Ausfuehrungsdatum auch mit in HTML und CSV exportieren
- *
- * Revision 1.19  2011-03-13 23:44:39  willuhn
- * @N Support fuer mehrere Velocity-Formate pro Typ ("Variant") - siehe Mail von Flo vom 13.03.2011
- *
- * Revision 1.18  2010-11-02 23:01:04  willuhn
- * @R auskommentierte Methode entfernt
- **********************************************************************/

@@ -27,15 +27,12 @@ import de.willuhn.jameica.gui.input.CheckboxInput;
 import de.willuhn.jameica.gui.input.ColorInput;
 import de.willuhn.jameica.gui.input.DecimalInput;
 import de.willuhn.jameica.gui.input.Input;
-import de.willuhn.jameica.gui.parts.TablePart;
 import de.willuhn.jameica.gui.util.SWTUtil;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.gui.DialogFactory;
-import de.willuhn.jameica.hbci.gui.action.PassportDetail;
 import de.willuhn.jameica.hbci.gui.action.UmsatzTypNew;
-import de.willuhn.jameica.hbci.gui.parts.PassportList;
 import de.willuhn.jameica.hbci.gui.parts.UmsatzTypTree;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.OperationCanceledException;
@@ -51,16 +48,15 @@ public class SettingsControl extends AbstractControl
 
 	// Eingabe-Felder
 	private CheckboxInput onlineMode     		= null;
-  private CheckboxInput cancelSyncOnError = null;
   private CheckboxInput cachePin          = null;
   private CheckboxInput storePin          = null;
   private CheckboxInput decimalGrouping   = null;
   private CheckboxInput kontoCheck        = null;
+  private CheckboxInput excludeAddresses  = null;
 
 	private Input buchungSollFg     				= null;
 	private Input buchungHabenFg    				= null;
 
-  private TablePart passportList          = null;
   private UmsatzTypTree umsatzTypTree     = null;
 
   private Input ueberweisungLimit         = null;
@@ -71,18 +67,6 @@ public class SettingsControl extends AbstractControl
   public SettingsControl(AbstractView view)
   {
     super(view);
-  }
-
-	/**
-	 * Liefert eine Tabelle mit den existierenden Passports.
-   * @return Tabelle mit den Passports.
-   * @throws RemoteException
-   */
-  public TablePart getPassportListe() throws RemoteException
-	{
-    if (passportList == null)
-      passportList = new PassportList(new PassportDetail());
-		return passportList;
   }
 
   /**
@@ -109,17 +93,6 @@ public class SettingsControl extends AbstractControl
 	}
 
   /**
-   * Checkbox zur Auswahl das Abbruches der Synchronisierung bei Fehler.
-   * @return Checkbox.
-   */
-  public CheckboxInput getCancelSyncOnError()
-  {
-    if (cancelSyncOnError == null)
-      cancelSyncOnError = new CheckboxInput(Settings.getCancelSyncOnError());
-    return cancelSyncOnError;
-  }
-
-  /**
    * Checkbox zur Auswahl von Dezimal-Trennzeichen in Betraegen.
    * @return Checkbox.
    */
@@ -138,8 +111,31 @@ public class SettingsControl extends AbstractControl
   public CheckboxInput getKontoCheck()
   {
     if (kontoCheck == null)
+    {
       kontoCheck = new CheckboxInput(Settings.getKontoCheck());
+      Listener l = new Listener() {
+        public void handleEvent(Event event)
+        {
+          getKontoCheckExcludeAddressbook().setEnabled(((Boolean)kontoCheck.getValue()).booleanValue());
+        }
+      };
+      kontoCheck.addListener(l);
+      
+      // einmal initial ausloesen
+      l.handleEvent(null);
+    }
     return kontoCheck;
+  }
+  
+  /**
+   * Checkbox, mit der Bankverbindungen aus dem Adressbuch aus der Pruefung ausgenommen werden koennen.
+   * @return Checkbox.
+   */
+  public CheckboxInput getKontoCheckExcludeAddressbook()
+  {
+    if (this.excludeAddresses == null)
+      this.excludeAddresses = new CheckboxInput(Settings.getKontoCheckExcludeAddressbook());
+    return this.excludeAddresses;
   }
 
   /**
@@ -200,8 +196,6 @@ public class SettingsControl extends AbstractControl
             d.setText(i18n.tr("Mit der permanenten Speicherung der PIN verstoﬂen Sie unter Umst‰nden\n" +
                               "gegen die Onlinebanking-AGB Ihres Geldinstitutes. Bitte wenden Sie sich\n" +
                               "an Ihre Bank und fragen Sie diese, ob das Speichern der PIN zul‰ssig ist.\n\n" +
-                              "Nach Aktivierung dieser Funktion erhalten Sie vom Programm-Autor von\n" +
-                              "Hibiscus keine Hilfe mehr bei Fragen oder Problemen.\n\n" +
                               "PIN-Speicherung wirklich aktivieren?"));
             b = ((Boolean) d.open()).booleanValue();
           }
@@ -270,7 +264,7 @@ public class SettingsControl extends AbstractControl
 		Settings.setOnlineMode(((Boolean)getOnlineMode().getValue()).booleanValue());
     Settings.setDecimalGrouping(((Boolean)getDecimalGrouping().getValue()).booleanValue());
     Settings.setKontoCheck(((Boolean)getKontoCheck().getValue()).booleanValue());
-    Settings.setCancelSyncOnError(((Boolean)getCancelSyncOnError().getValue()).booleanValue());
+    Settings.setKontoCheckExcludeAddressbook(((Boolean)getKontoCheckExcludeAddressbook().getValue()).booleanValue());
 
     boolean storeEnabled = ((Boolean)getStorePin().getValue()).booleanValue();
     boolean cacheEnabled = ((Boolean)getCachePin().getValue()).booleanValue();
@@ -289,24 +283,3 @@ public class SettingsControl extends AbstractControl
   }
 }
 
-
-/**********************************************************************
- * $Log: SettingsControl.java,v $
- * Revision 1.61  2011/06/30 16:29:41  willuhn
- * @N Unterstuetzung fuer neues UnreadCount-Feature
- *
- * Revision 1.60  2011-05-25 10:05:49  willuhn
- * @N Im Fehlerfall nur noch die PINs/Passwoerter der betroffenen Passports aus dem Cache loeschen. Wenn eine PIN falsch ist, muss man jetzt nicht mehr alle neu eingeben
- *
- * Revision 1.59  2011-05-25 08:53:31  willuhn
- * @N Cache und Store leeren, wenn die Features deaktiviert wurden
- *
- * Revision 1.58  2011-05-23 12:57:37  willuhn
- * @N optionales Speichern der PINs im Wallet. Ich announce das aber nicht. Ich hab das nur eingebaut, weil mir das Gejammer der User auf den Nerv ging und ich nicht will, dass sich User hier selbst irgendwelche Makros basteln, um die PIN dennoch zu speichern
- *
- * Revision 1.57  2011-04-28 07:33:23  willuhn
- * @C Code-Cleanup
- *
- * Revision 1.56  2010/03/05 15:24:53  willuhn
- * @N BUGZILLA 686
- **********************************************************************/

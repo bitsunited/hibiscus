@@ -24,6 +24,8 @@ import de.willuhn.jameica.gui.formatter.DateFormatter;
 import de.willuhn.jameica.gui.formatter.TableFormatter;
 import de.willuhn.jameica.gui.util.Color;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.gui.filter.KontoFilter;
+import de.willuhn.jameica.hbci.gui.input.KontoInput;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
 import de.willuhn.jameica.util.DateUtil;
@@ -33,7 +35,7 @@ import de.willuhn.jameica.util.DateUtil;
  */
 public class ProtokollList extends AbstractFromToList
 {
-
+  private KontoInput kontoAuswahl = null;
   private Konto konto = null;
   
   /**
@@ -76,19 +78,38 @@ public class ProtokollList extends AbstractFromToList
     this.addColumn(i18n.tr("Datum"),"datum",new DateFormatter(HBCI.LONGDATEFORMAT));
     this.addColumn(i18n.tr("Kommentar"),"kommentar");
   }
-
+  
   /**
-   * @see de.willuhn.jameica.hbci.gui.parts.AbstractFromToList#getList(java.util.Date, java.util.Date, java.lang.String)
+   * Ueberschrieben, weil der User das hier nicht auswaehlen koennen soll.
+   * @see de.willuhn.jameica.hbci.gui.parts.AbstractFromToList#getKonto()
    */
-  protected DBIterator getList(Date from, Date to, String text) throws RemoteException
+  public KontoInput getKonto() throws RemoteException
   {
-    DBIterator list = konto.getProtokolle();
+    if (this.kontoAuswahl != null)
+      return this.kontoAuswahl;
+    
+    this.kontoAuswahl = new KontoInput(this.konto,KontoFilter.ALL);
+    this.kontoAuswahl.setEnabled(false);
+    this.kontoAuswahl.setComment(null);
+    return this.kontoAuswahl;
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.gui.parts.AbstractFromToList#getList(java.lang.Object, java.util.Date, java.util.Date, java.lang.String)
+   */
+  protected DBIterator getList(Object konto, Date from, Date to, String text) throws RemoteException
+  {
+    if (konto == null || !(konto instanceof Konto))
+        return null;
+
+    DBIterator list = ((Konto) konto).getProtokolle();
     if (from != null) list.addFilter("datum >= ?", new Object[]{new java.sql.Date(DateUtil.startOfDay(from).getTime())});
     if (to   != null) list.addFilter("datum <= ?", new Object[]{new java.sql.Date(DateUtil.endOfDay(to).getTime())});
     if (text != null && text.length() > 0)
     {
       list.addFilter("LOWER(kommentar) like ?", new Object[]{"%" + text.toLowerCase() + "%"});
     }
+    
     return list;
   }
 }

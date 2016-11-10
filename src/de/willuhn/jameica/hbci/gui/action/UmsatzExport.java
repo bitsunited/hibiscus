@@ -12,11 +12,15 @@
  **********************************************************************/
 package de.willuhn.jameica.hbci.gui.action;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import de.willuhn.jameica.gui.Action;
 import de.willuhn.jameica.gui.GUI;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.gui.dialogs.ExportDialog;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
+import de.willuhn.jameica.hbci.server.UmsatzTreeNode;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.OperationCanceledException;
 import de.willuhn.logging.Logger;
@@ -41,12 +45,8 @@ public class UmsatzExport implements Action
 		if (context == null)
 			throw new ApplicationException(i18n.tr("Bitte wählen Sie mindestens einen Umsatz aus"));
 
-		if (!(context instanceof Umsatz) && !(context instanceof Umsatz[]))
-			throw new ApplicationException(i18n.tr("Bitte wählen Sie einen oder mehrere Umsätze aus"));
-
     Umsatz[] u = null;
 		try {
-
 			if (context instanceof Umsatz)
 			{
 				u = new Umsatz[1];
@@ -56,6 +56,25 @@ public class UmsatzExport implements Action
       {
         u = (Umsatz[]) context;
       }
+      else if (context instanceof UmsatzTreeNode)
+      {
+        UmsatzTreeNode node = (UmsatzTreeNode) context;
+        List<Umsatz> result = new ArrayList<Umsatz>();
+        collect(node,result);
+        u = result.toArray(new Umsatz[result.size()]);
+      }
+      else if (context instanceof UmsatzTreeNode[])
+      {
+        List<Umsatz> result = new ArrayList<Umsatz>();
+        for (UmsatzTreeNode node:(UmsatzTreeNode[])context)
+        {
+          collect(node,result);
+        }
+        u = result.toArray(new Umsatz[result.size()]);
+      }
+
+		   if (u == null || u.length == 0)
+		      throw new ApplicationException(i18n.tr("Bitte wählen Sie einen oder mehrere Umsätze aus"));
 
       ExportDialog d = new ExportDialog(u, Umsatz.class);
       d.open();
@@ -75,22 +94,24 @@ public class UmsatzExport implements Action
 			GUI.getStatusBar().setErrorText(i18n.tr("Fehler beim Exportieren der Umsätze"));
 		}
   }
-
+  
+  /**
+   * Sammelt rekursiv alle Umsaetze aus der Kategorie ein.
+   * Unterkategorien werden mit beruecksichtigt.
+   * BUGZILLA 1750.
+   * @param node die Kategorie.
+   * @param target die Liste, in der die Umsaetze gesammelt werden sollen.
+   */
+  private void collect(UmsatzTreeNode node, List<Umsatz> target)
+  {
+    target.addAll(node.getUmsaetze());
+    List<UmsatzTreeNode> children = node.getSubGroups();
+    if (children == null || children.size() == 0)
+      return;
+    
+    for (UmsatzTreeNode c:children)
+    {
+      collect(c,target);
+    }
+  }
 }
-
-
-/**********************************************************************
- * $Log: UmsatzExport.java,v $
- * Revision 1.4  2011/05/11 10:20:28  willuhn
- * @N OCE fangen
- *
- * Revision 1.3  2006/01/18 00:51:01  willuhn
- * @B bug 65
- *
- * Revision 1.2  2005/07/04 12:41:39  web0
- * @B bug 90
- *
- * Revision 1.1  2005/06/02 22:57:34  web0
- * @N Export von Konto-Umsaetzen
- *
- **********************************************************************/

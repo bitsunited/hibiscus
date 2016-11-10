@@ -15,6 +15,7 @@ import java.util.Date;
 import java.util.List;
 
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.MetaKey;
 import de.willuhn.jameica.hbci.rmi.HibiscusDBObject;
 import de.willuhn.jameica.hbci.rmi.Terminable;
 import de.willuhn.jameica.reminder.Reminder;
@@ -22,6 +23,7 @@ import de.willuhn.jameica.reminder.ReminderInterval;
 import de.willuhn.jameica.reminder.ReminderStorageProvider;
 import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.jameica.util.DateUtil;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
@@ -37,12 +39,16 @@ public class ReminderUtil
    * Uebernimmt ein Reminder-Intervall in einen Auftrag oder entfernt es wieder (wenn "interval" null ist).
    * @param order der Auftrag.
    * @param interval das Intervall
+   * @param end optionales Ende-Datum.
    * @throws Exception
    */
-  public static void apply(HibiscusDBObject order, ReminderInterval interval) throws Exception
+  public static void apply(HibiscusDBObject order, ReminderInterval interval, Date end) throws Exception
   {
     if (!(order instanceof Terminable))
+    {
+      Logger.info("type " + order.getClass().getName() + " does not support reminders");
       throw new ApplicationException(i18n.tr("Der Auftrag unterstützt keine Termine"));
+    }
     
     try
     {
@@ -51,8 +57,10 @@ public class ReminderUtil
       BeanService service = Application.getBootLoader().getBootable(BeanService.class);
       ReminderStorageProvider provider = service.get(ReminderStorageProviderHibiscus.class);
 
+      MetaKey UUID = MetaKey.REMINDER_UUID;
+      
       // Reminder laden
-      String uuid       = order.getMeta("reminder.uuid",null);
+      String uuid       = UUID.get(order);
       Reminder reminder = (uuid != null ? provider.get(uuid) : null);
 
       // a) ohne Intervall
@@ -62,7 +70,7 @@ public class ReminderUtil
         if (reminder != null)
         {
           provider.delete(uuid);
-          order.setMeta("reminder.uuid",null); // Referenz loeschen
+          UUID.set(order,null); // Referenz loeschen
         }
       }
       else // b) mit Intervall
@@ -82,6 +90,8 @@ public class ReminderUtil
         if (dates.size() < 2)
           throw new ApplicationException(i18n.tr("Kein Datum für die nächste Wiederholung ermittelbar"));
         reminder.setDate(dates.get(1));
+        reminder.setEnd(DateUtil.endOfDay(end)); // BUGZILLA 1585 - Datum auf Ende des Tages setzen, um sicherzustellen, dass der Termin im Laufe des Tages noch gilt
+        reminder.setData(Reminder.KEY_EXPIRED,null); // expired date resetten. Wird vom Service bei Bedarf neu gesetzt
         reminder.setQueue("hibiscus.reminder.order");
         reminder.setData("order.class",order.getClass().getName());
         reminder.setData("order.id",order.getID());
@@ -95,7 +105,7 @@ public class ReminderUtil
         {
           uuid = provider.add(reminder);
           // UUID des Reminders speichern
-          order.setMeta("reminder.uuid",uuid);
+          UUID.set(order,uuid);
         }
       }
       

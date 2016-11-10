@@ -19,7 +19,6 @@ import org.eclipse.swt.SWT;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
-import org.kapott.hbci.manager.HBCIUtils;
 
 import de.willuhn.jameica.gui.Action;
 import de.willuhn.jameica.gui.dialogs.AbstractDialog;
@@ -189,7 +188,7 @@ public class KontoAuswahlDialog extends AbstractDialog
     getInstitut().setValue("");
     if (this.preselected != null)
     {
-      String name = HBCIUtils.getNameForBLZ(this.preselected.getBLZ());
+      String name = HBCIProperties.getNameForBank(this.preselected.getBLZ());
       if (name != null && name.length() > 0)
         getInstitut().setValue(name);
     }
@@ -262,7 +261,7 @@ public class KontoAuswahlDialog extends AbstractDialog
       if (date != null)
       {
         double saldo = this.preselected.getSaldo();
-        getSaldo().setColor(ColorUtil.getColor(saldo,Color.ERROR,Color.SUCCESS,Color.WIDGET_FG));
+        getSaldo().setColor(ColorUtil.getColor(saldo,Color.ERROR,Color.SUCCESS,Color.FOREGROUND));
         
         String curr = this.preselected.getWaehrung();
         if (curr == null || curr.length() == 0)
@@ -283,7 +282,7 @@ public class KontoAuswahlDialog extends AbstractDialog
    * Liefert den Uebernehmen-Button.
    * @return der Uebernehmen-Button.
    */
-  private Button getApplyButton()
+  public Button getApplyButton()
   {
     if (this.apply != null)
       return this.apply;

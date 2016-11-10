@@ -1,17 +1,13 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/views/AbstractUmsatzDetail.java,v $
- * $Revision: 1.5 $
- * $Date: 2011/08/05 11:21:58 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
 
 package de.willuhn.jameica.hbci.gui.views;
+
+import java.rmi.RemoteException;
 
 import de.willuhn.jameica.gui.AbstractView;
 import de.willuhn.jameica.gui.GUI;
@@ -20,6 +16,7 @@ import de.willuhn.jameica.gui.util.SimpleContainer;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.gui.controller.UmsatzDetailControl;
 import de.willuhn.jameica.hbci.rmi.Konto;
+import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.util.I18N;
 
@@ -90,27 +87,25 @@ public abstract class AbstractUmsatzDetail extends AbstractView
     bottom.addLabelPair(i18n.tr("Kategorie"),                   control.getUmsatzTyp());
     bottom.addHeadline(i18n.tr("Verwendungszweck"));
     bottom.addPart(control.getZweck());
+    bottom.addInput(control.getZweckSwitch());
+
+    forceSaldoUpdateforReverseBooking();
+  }
+
+  private void forceSaldoUpdateforReverseBooking()
+  {
+    if(getCurrentObject() instanceof Umsatz){
+      Umsatz umsatz=(Umsatz)getCurrentObject();
+      try
+      {
+        if(umsatz.isNewObject() && umsatz.getKonto().hasFlag(Konto.FLAG_OFFLINE)){
+          getControl().getBetrag().getControl().forceFocus();//->Saldenberechnungslistener feuert
+          getControl().getUmsatzTyp().focus();
+        }
+      } catch (RemoteException e)
+      {
+        //einfach ignoriere, wir wollen ja nur ein Feld vorsorglich aktualisieren
+      }
+    }
   }
 }
-
-
-/**********************************************************************
- * $Log: AbstractUmsatzDetail.java,v $
- * Revision 1.5  2011/08/05 11:21:58  willuhn
- * @N Erster Code fuer eine Umsatz-Preview
- * @C Compiler-Warnings
- * @N DateFromInput/DateToInput - damit sind die Felder fuer den Zeitraum jetzt ueberall einheitlich
- *
- * Revision 1.4  2011-07-25 14:42:41  willuhn
- * @N BUGZILLA 1065
- *
- * Revision 1.3  2010-08-13 13:10:09  willuhn
- * *** empty log message ***
- *
- * Revision 1.2  2009/01/20 10:00:06  willuhn
- * @C Layout der Umsatzdetails nochmal leicht ueberarbeitet
- *
- * Revision 1.1  2009/01/04 14:47:53  willuhn
- * @N Bearbeiten der Umsaetze nochmal ueberarbeitet - Codecleanup
- *
- **********************************************************************/

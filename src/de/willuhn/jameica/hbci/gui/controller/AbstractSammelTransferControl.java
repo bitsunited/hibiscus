@@ -44,12 +44,13 @@ import de.willuhn.util.I18N;
 /**
  * Abstrakte Basis-Implementierung des Controllers fuer die Dialog Liste der Sammellastschriften/Sammel-Überweisungen.
  * @author willuhn
+ * @param <T> der konkrete Typ des Sammel-Auftrages.
  */
-public abstract class AbstractSammelTransferControl extends AbstractControl
+public abstract class AbstractSammelTransferControl<T extends SammelTransfer> extends AbstractControl
 {
   final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
 
-  private Input kontoAuswahl				     = null;
+  private KontoInput kontoAuswahl	       = null;
   private Input name                     = null;
   private TerminInput termin             = null;
   private ReminderIntervalInput interval = null;
@@ -69,7 +70,7 @@ public abstract class AbstractSammelTransferControl extends AbstractControl
    * @return Sammel-Auftrag.
    * @throws RemoteException
    */
-  public abstract SammelTransfer getTransfer() throws RemoteException;
+  public abstract T getTransfer() throws RemoteException;
 
   /**
    * Liefert eine Tabelle mit den existierenden Sammel-Auftraegen.
@@ -90,14 +91,15 @@ public abstract class AbstractSammelTransferControl extends AbstractControl
    * @return Auswahl-Feld.
    * @throws RemoteException
    */
-  public Input getKontoAuswahl() throws RemoteException
+  public KontoInput getKontoAuswahl() throws RemoteException
   {
     if (this.kontoAuswahl != null)
       return this.kontoAuswahl;
     
     Konto k = getTransfer().getKonto();
     KontoListener kl = new KontoListener();
-    this.kontoAuswahl = new KontoInput(k,KontoFilter.ACTIVE);
+    this.kontoAuswahl = new KontoInput(k,getTransfer().isNewObject() ? KontoFilter.ONLINE : KontoFilter.ALL); // Falls nachtraeglich das Konto deaktiviert wurde
+    this.kontoAuswahl.setRememberSelection("auftraege",false); // BUGZILLA 1362 - zuletzt ausgewaehltes Konto gleich uebernehmen
     this.kontoAuswahl.setMandatory(true);
     this.kontoAuswahl.addListener(kl);
     this.kontoAuswahl.setEnabled(!getTransfer().ausgefuehrt());
@@ -161,8 +163,7 @@ public abstract class AbstractSammelTransferControl extends AbstractControl
       return name;
     name = new TextInput(getTransfer().getBezeichnung());
     name.setMandatory(true);
-    if (getTransfer().ausgefuehrt())
-      name.disable();
+    name.setEnabled(!getTransfer().ausgefuehrt());
     return name;
   }
 
@@ -189,7 +190,7 @@ public abstract class AbstractSammelTransferControl extends AbstractControl
       // Reminder-Intervall speichern
       ReminderIntervalInput input = this.getReminderInterval();
       if (input.containsInterval())
-        ReminderUtil.apply(t,(ReminderInterval) input.getValue());
+        ReminderUtil.apply(t,(ReminderInterval) input.getValue(), input.getEnd());
 
       t.transactionCommit();
       
@@ -219,7 +220,7 @@ public abstract class AbstractSammelTransferControl extends AbstractControl
     }
     return false;
   }
-
+  
   /**
    * Listener, der die Auswahl des Kontos ueberwacht und die Waehrungsbezeichnung
    * hinter dem Betrag abhaengig vom ausgewaehlten Konto anpasst.
@@ -317,7 +318,7 @@ public abstract class AbstractSammelTransferControl extends AbstractControl
             catch (RemoteException e)
             {
               Logger.error("unable to load sammelueberweisung",e);
-              throw new ApplicationException(i18n.tr("Fehler beim Laden der Sammel-Überweisung"));
+              throw new ApplicationException(i18n.tr("Fehler beim Laden des Sammel-Auftrages"));
             }
           }
         }
@@ -340,38 +341,4 @@ public abstract class AbstractSammelTransferControl extends AbstractControl
       return false;
     }
   }
-
-
-
 }
-
-/*****************************************************************************
- * $Log: AbstractSammelTransferControl.java,v $
- * Revision 1.15  2012/02/26 13:00:39  willuhn
- * @B BUGZILLA 1197
- *
- * Revision 1.14  2011/10/20 16:20:05  willuhn
- * @N BUGZILLA 182 - Erste Version von client-seitigen Dauerauftraegen fuer alle Auftragsarten
- *
- * Revision 1.13  2011-08-10 12:47:28  willuhn
- * @N BUGZILLA 1118
- *
- * Revision 1.12  2011-05-20 16:22:31  willuhn
- * @N Termin-Eingabefeld in eigene Klasse ausgelagert (verhindert duplizierten Code) - bessere Kommentare
- *
- * Revision 1.11  2010-12-13 11:01:08  willuhn
- * @B Wenn man einen Sammelauftrag in der Detailansicht loeschte, konnte man anschliessend noch doppelt auf die zugeordneten Buchungen klicken und eine ObjectNotFoundException ausloesen
- *
- * Revision 1.10  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.9  2009/10/07 23:08:56  willuhn
- * @N BUGZILLA 745: Deaktivierte Konten in Auswertungen zwar noch anzeigen, jedoch mit "[]" umschlossen. Bei der Erstellung von neuen Auftraegen bleiben sie jedoch ausgeblendet. Bei der Gelegenheit wird das Default-Konto jetzt mit ">" markiert
- *
- * Revision 1.8  2009/03/11 23:40:45  willuhn
- * @B Kleineres Bugfixing in Sammeltransfer-Control
- *
- * Revision 1.7  2009/01/04 16:18:22  willuhn
- * @N BUGZILLA 404 - Kontoauswahl via SelectBox
-*****************************************************************************/

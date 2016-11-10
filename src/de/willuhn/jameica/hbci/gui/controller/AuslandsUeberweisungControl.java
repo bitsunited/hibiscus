@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/controller/AuslandsUeberweisungControl.java,v $
- * $Revision: 1.14 $
- * $Date: 2012/02/26 13:00:39 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn software & services
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -14,7 +8,10 @@
 package de.willuhn.jameica.hbci.gui.controller;
 
 import java.rmi.RemoteException;
+import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
@@ -26,6 +23,7 @@ import de.willuhn.jameica.gui.GUI;
 import de.willuhn.jameica.gui.input.CheckboxInput;
 import de.willuhn.jameica.gui.input.DecimalInput;
 import de.willuhn.jameica.gui.input.Input;
+import de.willuhn.jameica.gui.input.SelectInput;
 import de.willuhn.jameica.gui.input.TextInput;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
@@ -35,7 +33,10 @@ import de.willuhn.jameica.hbci.gui.action.EmpfaengerAdd;
 import de.willuhn.jameica.hbci.gui.filter.AddressFilter;
 import de.willuhn.jameica.hbci.gui.filter.KontoFilter;
 import de.willuhn.jameica.hbci.gui.input.AddressInput;
+import de.willuhn.jameica.hbci.gui.input.BICInput;
+import de.willuhn.jameica.hbci.gui.input.IBANInput;
 import de.willuhn.jameica.hbci.gui.input.KontoInput;
+import de.willuhn.jameica.hbci.gui.input.PurposeCodeInput;
 import de.willuhn.jameica.hbci.gui.input.ReminderIntervalInput;
 import de.willuhn.jameica.hbci.gui.input.TerminInput;
 import de.willuhn.jameica.hbci.gui.parts.AuslandsUeberweisungList;
@@ -46,9 +47,11 @@ import de.willuhn.jameica.hbci.rmi.HibiscusAddress;
 import de.willuhn.jameica.hbci.rmi.HibiscusTransfer;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Terminable;
+import de.willuhn.jameica.hbci.synchronize.jobs.SynchronizeJobSepaUeberweisung;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.reminder.ReminderInterval;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.jameica.util.DateUtil;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
@@ -65,18 +68,24 @@ public class AuslandsUeberweisungControl extends AbstractControl
   private AuslandsUeberweisung transfer      = null;
   
   // Eingabe-Felder
-  private Input kontoAuswahl                 = null;
+  private KontoInput kontoAuswahl            = null;
   private Input betrag                       = null;
   private TextInput zweck                    = null;
 
   private AddressInput empfName              = null;
   private TextInput empfkto                  = null;
   private TextInput bic                      = null;
+  private TextInput endToEndId               = null;
+  private TextInput pmtInfId                 = null;
+  private PurposeCodeInput purposeCode       = null;
 
   private TerminInput termin                 = null;
+  private SelectInput typ                    = null;
   private ReminderIntervalInput interval     = null;
 
   private CheckboxInput storeEmpfaenger      = null;
+  
+  private Listener terminListener            = new TerminListener();
   
   
   /**
@@ -134,6 +143,7 @@ public class AuslandsUeberweisungControl extends AbstractControl
     MyKontoFilter filter = new MyKontoFilter();
     this.kontoAuswahl = new KontoInput(getTransfer().getKonto(),filter);
     this.kontoAuswahl.setName(i18n.tr("Persönliches Konto"));
+    this.kontoAuswahl.setRememberSelection("auftraege",false); // BUGZILLA 1362 - zuletzt ausgewaehltes Konto gleich uebernehmen
     this.kontoAuswahl.setMandatory(true);
     this.kontoAuswahl.addListener(kl);
     this.kontoAuswahl.setEnabled(!getTransfer().ausgefuehrt());
@@ -174,20 +184,9 @@ public class AuslandsUeberweisungControl extends AbstractControl
     if (empfkto != null)
       return empfkto;
 
-    empfkto = new TextInput(getTransfer().getGegenkontoNummer(),HBCIProperties.HBCI_IBAN_MAXLENGTH + 5); // max. 5 Leerzeichen
-    empfkto.setValidChars(HBCIProperties.HBCI_IBAN_VALIDCHARS + " ");
+    empfkto = new IBANInput(getTransfer().getGegenkontoNummer(),this.getEmpfaengerBic());
     empfkto.setMandatory(true);
     empfkto.setEnabled(!getTransfer().ausgefuehrt());
-    empfkto.addListener(new Listener()
-    {
-      public void handleEvent(Event event)
-      {
-        String s = (String) empfkto.getValue();
-        if (s == null || s.length() == 0 || s.indexOf(" ") == -1)
-          return;
-        empfkto.setValue(s.replaceAll(" ",""));
-      }
-    });
     return empfkto;
   }
 
@@ -200,12 +199,64 @@ public class AuslandsUeberweisungControl extends AbstractControl
   {
     if (this.bic == null)
     {
-      this.bic = new TextInput(getTransfer().getGegenkontoBLZ(),HBCIProperties.HBCI_BIC_MAXLENGTH);
-      this.bic.setValidChars(HBCIProperties.HBCI_BIC_VALIDCHARS);
+      this.bic = new BICInput(getTransfer().getGegenkontoBLZ());
       this.bic.setEnabled(!getTransfer().ausgefuehrt());
-      this.bic.setMandatory(true);
     }
     return this.bic;
+  }
+
+  /**
+   * Liefert das Eingabe-Feld fuer die End2End-ID.
+   * @return Eingabe-Feld.
+   * @throws RemoteException
+   */
+  public Input getEndToEndId() throws RemoteException
+  {
+    if (this.endToEndId == null)
+    {
+      this.endToEndId = new TextInput(getTransfer().getEndtoEndId(),HBCIProperties.HBCI_SEPA_ENDTOENDID_MAXLENGTH);
+      this.endToEndId.setName(i18n.tr("End-to-End ID"));
+      this.endToEndId.setValidChars(HBCIProperties.HBCI_SEPA_VALIDCHARS);
+      this.endToEndId.setEnabled(!getTransfer().ausgefuehrt());
+      this.endToEndId.setHint(i18n.tr("freilassen wenn nicht benötigt"));
+      this.endToEndId.setMandatory(false);
+    }
+    return this.endToEndId;
+  }
+  
+  /**
+   * Liefert das Eingabe-Feld fuer die PmtInf-ID.
+   * @return Eingabe-Feld.
+   * @throws RemoteException
+   */
+  public Input getPmtInfId() throws RemoteException
+  {
+    if (this.pmtInfId != null)
+      return this.pmtInfId;
+
+    this.pmtInfId = new TextInput(getTransfer().getPmtInfId(),HBCIProperties.HBCI_SEPA_ENDTOENDID_MAXLENGTH);
+    this.pmtInfId.setName(i18n.tr("Referenz (Payment-Information ID)"));
+    this.pmtInfId.setValidChars(HBCIProperties.HBCI_SEPA_VALIDCHARS);
+    this.pmtInfId.setEnabled(!getTransfer().ausgefuehrt());
+    this.pmtInfId.setHint(i18n.tr("freilassen wenn nicht benötigt"));
+    this.pmtInfId.setMandatory(false);
+    return this.pmtInfId;
+  }
+
+  /**
+   * Liefert das Eingabe-Feld fuer den Purpose-Code.
+   * @return Eingabe-Feld.
+   * @throws RemoteException
+   */
+  public Input getPurposeCode() throws RemoteException
+  {
+    if (this.purposeCode != null)
+      return this.purposeCode;
+
+    this.purposeCode = new PurposeCodeInput(getTransfer().getPurposeCode());
+    this.purposeCode.setEnabled(!getTransfer().ausgefuehrt());
+    this.purposeCode.setMandatory(false);
+    return this.purposeCode;
   }
 
   /**
@@ -254,8 +305,47 @@ public class AuslandsUeberweisungControl extends AbstractControl
    */
   public TerminInput getTermin() throws RemoteException
   {
-    if (this.termin == null)
-      this.termin = new TerminInput((Terminable) getTransfer());
+    if (this.termin != null)
+      return this.termin;
+    
+    this.termin = new TerminInput((Terminable) getTransfer());
+    this.termin.addListener(new Listener() {
+      public void handleEvent(Event event)
+      {
+        try
+        {
+          if (!termin.hasChanged())
+            return;
+          
+          Date date = (Date) termin.getValue();
+          if (date == null)
+            return;
+          
+          // Wenn das Datum eine Woche in der Zukunft liegt, fragen wir den User, ob es vielleicht
+          // eine Terminueberweisung werden soll. Muessen wir aber nicht fragen, wenn
+          // der User nicht ohnehin schon eine Termin-Ueberweisung ausgewaehlt hat
+          Typ typ = (Typ) getTyp().getValue();
+          if (typ == null || typ.termin)
+            return;
+
+          Calendar cal = Calendar.getInstance();
+          cal.setTime(DateUtil.startOfDay(new Date()));
+          cal.add(Calendar.DATE,6);
+          if (DateUtil.startOfDay(date).after(cal.getTime()))
+          {
+            String q = i18n.tr("Soll der Auftrag als bankseitig geführte SEPA-Terminüberweisung ausgeführt werden?");
+            if (Application.getCallback().askUser(q))
+              getTyp().setValue(new Typ(true,false));
+          }
+        }
+        catch (Exception e)
+        {
+          Logger.error("unable to check for termueb",e);
+        }
+        
+      }
+    });
+      
     return termin;
   }
 
@@ -297,6 +387,49 @@ public class AuslandsUeberweisungControl extends AbstractControl
 
     return storeEmpfaenger;
   }
+  
+  /**
+   * Liefert eine Combobox zur Auswahl des Auftragstyps.
+   * Zur Wahl stehen Ueberweisung, Termin-Ueberweisung und Umbuchung.
+   * @return die Combobox.
+   * @throws RemoteException
+   */
+  public SelectInput getTyp() throws RemoteException
+  {
+    if (this.typ != null)
+      return this.typ;
+    final AuslandsUeberweisung u = getTransfer();
+    
+    List<Typ> list = new ArrayList<Typ>();
+    list.add(new Typ(false,false));
+    list.add(new Typ(true,false));
+    list.add(new Typ(false,true));
+    this.typ = new SelectInput(list,new Typ(u.isTerminUeberweisung(),u.isUmbuchung()));
+    this.typ.setName(i18n.tr("Auftragstyp"));
+    this.typ.setAttribute("name");
+    this.typ.setEnabled(!u.ausgefuehrt());
+    this.typ.addListener(new Listener() {
+      public void handleEvent(Event event)
+      {
+        // Wir muessen die Entscheidung, ob es eine Termin-Ueberweisung ist,
+        // sofort im Objekt speichern, denn die Information wird von
+        // "getTermin()" gebraucht, um zu erkennen, ob der Auftrag faellig ist
+        try
+        {
+          Typ t = (Typ) getTyp().getValue();
+          u.setTerminUeberweisung(t.termin);
+        }
+        catch (Exception e)
+        {
+          Logger.error("unable to set flag",e);
+        }
+      }
+    });
+    
+    this.typ.addListener(this.terminListener);
+    this.terminListener.handleEvent(null); // einmal initial ausloesen
+    return this.typ;
+  }
 
   /**
    * Speichert den Geld-Transfer.
@@ -320,6 +453,13 @@ public class AuslandsUeberweisungControl extends AbstractControl
       t.setKonto((Konto)getKontoAuswahl().getValue());
       t.setZweck((String)getZweck().getValue());
       t.setTermin((Date) getTermin().getValue());
+      t.setEndtoEndId((String) getEndToEndId().getValue());
+      t.setPmtInfId((String) getPmtInfId().getValue());
+      t.setPurposeCode((String)getPurposeCode().getValue());
+
+      Typ typ = (Typ) getTyp().getValue();
+      t.setTerminUeberweisung(typ.termin);
+      t.setUmbuchung(typ.umb);
 
       String kto  = (String)getEmpfaengerKonto().getValue();
       String name = getEmpfaengerName().getText();
@@ -334,7 +474,7 @@ public class AuslandsUeberweisungControl extends AbstractControl
       // Reminder-Intervall speichern
       ReminderIntervalInput input = this.getReminderInterval();
       if (input.containsInterval())
-        ReminderUtil.apply(t,(ReminderInterval) input.getValue());
+        ReminderUtil.apply(t,(ReminderInterval) input.getValue(), input.getEnd());
 
       Boolean store = (Boolean) getStoreEmpfaenger().getValue();
       if (store.booleanValue())
@@ -382,10 +522,10 @@ public class AuslandsUeberweisungControl extends AbstractControl
   /**
    * Eigener ueberschriebener Kontofilter.
    */
-  private class MyKontoFilter implements KontoFilter
+  private class MyKontoFilter extends KontoFilter
   {
     // Wir leiten die Anfrage an den weiter
-    private KontoFilter foreign = KontoFilter.FOREIGN;
+    private KontoFilter foreign = KontoFilter.createForeign(SynchronizeJobSepaUeberweisung.class);
 
     private boolean found = false;
 
@@ -421,9 +561,6 @@ public class AuslandsUeberweisungControl extends AbstractControl
 
         Konto konto = (Konto) o;
         getBetrag().setComment(konto.getWaehrung());
-
-        // Wird u.a. benoetigt, damit anhand des Auftrages ermittelt werden
-        // kann, wieviele Zeilen Verwendungszweck jetzt moeglich sind
         getTransfer().setKonto(konto);
       }
       catch (RemoteException er)
@@ -467,7 +604,7 @@ public class AuslandsUeberweisungControl extends AbstractControl
             return;
           
           DBIterator list = getTransfer().getList();
-          list.addFilter("empfaenger_konto = ?",new Object[]{a.getKontonummer()});
+          list.addFilter("empfaenger_konto = ?",a.getIban());
           list.setOrder("order by id desc");
           if (list.hasNext())
           {
@@ -489,53 +626,79 @@ public class AuslandsUeberweisungControl extends AbstractControl
       }
     }
   }
+  
+  /**
+   * Listener, der das Label vor dem Termin aendert, wenn es eine Bank-seitig gefuehrte Termin-Ueberweisung ist.
+   */
+  private class TerminListener implements Listener
+  {
+    /**
+     * @see org.eclipse.swt.widgets.Listener#handleEvent(org.eclipse.swt.widgets.Event)
+     */
+    @Override
+    public void handleEvent(Event event)
+    {
+      try
+      {
+        TerminInput input = getTermin();
+        Typ typ = (Typ) getTyp().getValue();
+        if (typ != null && typ.termin)
+          input.setName(i18n.tr("Ausführungstermin"));
+        else
+          input.setName(i18n.tr("Erinnerungstermin"));
+        
+        // Kommentar vom Termin-Eingabefeld aktualisieren.
+        input.updateComment();
+      }
+      catch (Exception e)
+      {
+        Logger.error("unable to update label",e);
+      }
+      
+    }
+  }
+  
+  /**
+   * Hilfsklasse fuer den Auftragstyp.
+   */
+  public class Typ
+  {
+    private boolean termin = false;
+    private boolean umb    = false;
+    
+    /**
+     * ct.
+     * @param termin true bei Termin-Ueberweisung.
+     * @param umb true bei Umbuchung.
+     */
+    private Typ(boolean termin, boolean umb)
+    {
+      this.termin = termin;
+      this.umb    = umb;
+    }
+    
+    /**
+     * Liefert den sprechenden Namen des Typs.
+     * @return sprechender Name des Typs.
+     */
+    public String getName()
+    {
+      if (this.termin) return i18n.tr("Bankseitige SEPA-Terminüberweisung");
+      if (this.umb)    return i18n.tr("Interne Umbuchung (Übertrag)");
+      return           i18n.tr("Überweisung");
+    }
+    
+    /**
+     * @see java.lang.Object#equals(java.lang.Object)
+     */
+    public boolean equals(Object o)
+    {
+      if (o == null || !(o instanceof Typ))
+        return false;
+      Typ other = (Typ) o;
+      return other.termin == this.termin &&
+             other.umb == this.umb;
+    }
+  }
 
 }
-
-
-/**********************************************************************
- * $Log: AuslandsUeberweisungControl.java,v $
- * Revision 1.14  2012/02/26 13:00:39  willuhn
- * @B BUGZILLA 1197
- *
- * Revision 1.13  2011/10/20 16:20:05  willuhn
- * @N BUGZILLA 182 - Erste Version von client-seitigen Dauerauftraegen fuer alle Auftragsarten
- *
- * Revision 1.12  2011-05-20 16:22:31  willuhn
- * @N Termin-Eingabefeld in eigene Klasse ausgelagert (verhindert duplizierten Code) - bessere Kommentare
- *
- * Revision 1.11  2011-04-11 14:36:38  willuhn
- * @N Druck-Support fuer Lastschriften und SEPA-Ueberweisungen
- *
- * Revision 1.10  2011-04-07 17:52:07  willuhn
- * @N BUGZILLA 1014
- *
- * Revision 1.9  2010/04/14 17:44:10  willuhn
- * @N BUGZILLA 83
- *
- * Revision 1.8  2010/04/11 22:05:40  willuhn
- * @N virtuelle Konto-Adressen in SEPA-Auftraegen beruecksichtigen
- *
- * Revision 1.7  2010/04/05 21:19:34  willuhn
- * @N Leerzeichen in IBAN zulassen - und nach Eingabe automatisch abschneiden (wie bei BLZ) - siehe http://www.willuhn.de/blog/index.php?/archives/506-Beta-Phase-fuer-Jameica-1.9Hibiscus-1.11-eroeffnet.html#c1079
- *
- * Revision 1.6  2009/10/29 12:26:04  willuhn
- * *** empty log message ***
- *
- * Revision 1.5  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.4  2009/10/07 23:08:56  willuhn
- * @N BUGZILLA 745: Deaktivierte Konten in Auswertungen zwar noch anzeigen, jedoch mit "[]" umschlossen. Bei der Erstellung von neuen Auftraegen bleiben sie jedoch ausgeblendet. Bei der Gelegenheit wird das Default-Konto jetzt mit ">" markiert
- *
- * Revision 1.3  2009/05/07 15:13:37  willuhn
- * @N BIC in Auslandsueberweisung
- *
- * Revision 1.2  2009/03/17 23:44:14  willuhn
- * @N BUGZILLA 159 - Auslandsueberweisungen. Erste Version
- *
- * Revision 1.1  2009/03/13 00:25:12  willuhn
- * @N Code fuer Auslandsueberweisungen fast fertig
- *
- **********************************************************************/

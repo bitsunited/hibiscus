@@ -16,6 +16,7 @@ import java.rmi.RemoteException;
 
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
+import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.rmi.HibiscusAddress;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
@@ -82,7 +83,8 @@ public class HibiscusAddressImpl extends AbstractHibiscusDBObject implements Hib
         // BUGZILLA 280
         HBCIProperties.checkChars(blz, HBCIProperties.HBCI_BLZ_VALIDCHARS);
 
-        if (!HBCIProperties.checkAccountCRC(blz,kn))
+        // Nur pruefen, wenn ungueltige Bankverbindungen im Adressbuch erlaubt sind
+        if (!Settings.getKontoCheckExcludeAddressbook() && !HBCIProperties.checkAccountCRC(blz,kn))
           throw new ApplicationException(i18n.tr("Ungültige BLZ/Kontonummer. Bitte prüfen Sie Ihre Eingaben."));
         
         haveAccount = true;
@@ -99,14 +101,12 @@ public class HibiscusAddressImpl extends AbstractHibiscusDBObject implements Hib
       {
         HBCIProperties.checkLength(iban, HBCIProperties.HBCI_IBAN_MAXLENGTH);
         HBCIProperties.checkChars(iban, HBCIProperties.HBCI_IBAN_VALIDCHARS);
-        if (!HBCIProperties.checkIBANCRC(iban))
-          throw new ApplicationException(i18n.tr("Ungültige IBAN. Bitte prüfen Sie Ihre Eingaben."));
+        HBCIProperties.getIBAN(iban);
         haveAccount = true;
       }
       if (bic != null && bic.length() > 0)
       {
-        HBCIProperties.checkLength(bic, HBCIProperties.HBCI_BIC_MAXLENGTH);
-        HBCIProperties.checkChars(bic, HBCIProperties.HBCI_BIC_VALIDCHARS);
+        HBCIProperties.checkBIC(bic);
       }
       if (bank != null && bank.length() > 0)
       {

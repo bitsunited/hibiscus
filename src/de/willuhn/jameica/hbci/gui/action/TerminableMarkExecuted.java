@@ -18,6 +18,7 @@ import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.messaging.ObjectChangedMessage;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
+import de.willuhn.jameica.hbci.rmi.SammelTransfer;
 import de.willuhn.jameica.hbci.rmi.Terminable;
 import de.willuhn.jameica.hbci.rmi.HibiscusTransfer;
 import de.willuhn.jameica.messaging.StatusBarMessage;
@@ -72,6 +73,14 @@ public class TerminableMarkExecuted implements Action
             k.addToProtokoll(i18n.tr("Auftrag \"{0}\" [Gegenkonto {1}, BLZ {2}] manuell als \"ausgeführt\" markiert",new String[]{tr.getZweck(),tr.getGegenkontoName(),tr.getGegenkontoBLZ()}),Protokoll.TYP_SUCCESS);
           Application.getMessagingFactory().sendMessage(new ObjectChangedMessage(tr));
         }
+        else if (t[i] instanceof SammelTransfer)
+        {
+          SammelTransfer tr = (SammelTransfer) t[i];
+          Konto k = tr.getKonto();
+          if (k != null)
+            k.addToProtokoll(i18n.tr("Sammel-Auftrag [Bezeichnung: {0}] manuell als \"ausgeführt\" markiert",tr.getBezeichnung()),Protokoll.TYP_SUCCESS);
+          Application.getMessagingFactory().sendMessage(new ObjectChangedMessage(tr));
+        }
       }
       if (t.length == 1)
         Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Auftrag als \"ausgeführt\" markiert"),StatusBarMessage.TYPE_SUCCESS));
@@ -95,23 +104,3 @@ public class TerminableMarkExecuted implements Action
   }
 
 }
-
-
-/**********************************************************************
- * $Log: TerminableMarkExecuted.java,v $
- * Revision 1.4  2009/02/18 10:48:42  willuhn
- * @N Neuer Schalter "transfer.markexecuted.before", um festlegen zu koennen, wann ein Auftrag als ausgefuehrt gilt (wenn die Quittung von der Bank vorliegt oder wenn der Auftrag erzeugt wurde)
- *
- * Revision 1.3  2007/10/25 15:47:21  willuhn
- * @N Einzelauftraege zu Sammel-Auftraegen zusammenfassen (BUGZILLA 402)
- *
- * Revision 1.2  2007/04/23 18:07:14  willuhn
- * @C Redesign: "Adresse" nach "HibiscusAddress" umbenannt
- * @C Redesign: "Transfer" nach "HibiscusTransfer" umbenannt
- * @C Redesign: Neues Interface "Transfer", welches von Ueberweisungen, Lastschriften UND Umsaetzen implementiert wird
- * @N Anbindung externer Adressbuecher
- *
- * Revision 1.1  2006/03/30 22:56:46  willuhn
- * @B bug 216
- *
- **********************************************************************/

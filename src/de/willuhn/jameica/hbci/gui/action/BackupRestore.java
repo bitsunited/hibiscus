@@ -34,8 +34,12 @@ import de.willuhn.jameica.gui.Action;
 import de.willuhn.jameica.gui.GUI;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.Settings;
+import de.willuhn.jameica.hbci.rmi.Konto;
+import de.willuhn.jameica.hbci.rmi.Protokoll;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.BackgroundTask;
+import de.willuhn.jameica.system.OperationCanceledException;
+import de.willuhn.logging.Level;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
@@ -53,6 +57,32 @@ public class BackupRestore implements Action
    */
   public void handleAction(Object context) throws ApplicationException
   {
+    // Wir checken vorher, ob die Datenbank leer ist. Ansonsten koennen wir das
+    // eh nicht sinnvoll importieren.
+    try
+    {
+      if (Settings.getDBService().createList(Konto.class).size() > 0)
+      {
+        String text = i18n.tr("Die Hibiscus-Installation enthält bereits Daten.\n" +
+                              "Das Backup kann nur in eine neue Hibiscus-Installation importiert werden.");
+        Application.getCallback().notifyUser(text);
+        return;
+      }
+    }
+    catch (ApplicationException ae)
+    {
+      throw ae;
+    }
+    catch (OperationCanceledException oce)
+    {
+      return;
+    }
+    catch (Exception e)
+    {
+      Logger.error("unable to notify user",e);
+      throw new ApplicationException(i18n.tr("Datenbank-Import fehlgeschlagen"));
+    }
+    
     FileDialog fd = new FileDialog(GUI.getShell(),SWT.OPEN);
     fd.setFileName("hibiscus-backup-" + BackupCreate.DATEFORMAT.format(new Date()) + ".xml");
     fd.setFilterExtensions(new String[]{"*.xml"});
@@ -85,7 +115,7 @@ public class BackupRestore implements Action
           
             public GenericObject create(String type, String id, Map values) throws Exception
             {
-              AbstractDBObject object = (AbstractDBObject) Settings.getDBService().createObject(loader.loadClass(type),null);
+              AbstractDBObject object = (AbstractDBObject) Settings.getDBService().createObject((Class<AbstractDBObject>)loader.loadClass(type),null);
               object.setID(id);
               Iterator i = values.keySet().iterator();
               while (i.hasNext())
@@ -108,8 +138,18 @@ public class BackupRestore implements Action
             }
             catch (Exception e)
             {
-              Logger.error("unable to import " + o.getClass().getName() + ":" + o.getID() + ", skipping",e);
-              monitor.log("  " + i18n.tr("{0} fehlerhaft ({1}), überspringe",new String[]{BeanUtil.toString(o),e.getMessage()}));
+              if (o instanceof Protokoll)
+              {
+                // Bei den Protokollen kann das passieren. Denn beim Import der Datei werden vorher 
+                // die Konten importiert. Und deren Anlage fuehrt auch bereits zur Erstellung von
+                // Protokollen, deren IDs dann im Konflikt zu diesen hier stehen.
+                Logger.write(Level.DEBUG,"unable to import " + o.getClass().getName() + ":" + o.getID() + ", skipping",e);
+              }
+              else
+              {
+                Logger.error("unable to import " + o.getClass().getName() + ":" + o.getID() + ", skipping",e);
+                monitor.log("  " + i18n.tr("{0} fehlerhaft ({1}), überspringe",new String[]{BeanUtil.toString(o),e.getMessage()}));
+              }
             }
             if (count++ % 100 == 0)
               monitor.addPercentComplete(1);

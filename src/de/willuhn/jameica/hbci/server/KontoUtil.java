@@ -16,6 +16,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
+
+import org.apache.commons.lang.StringUtils;
 
 import de.willuhn.datasource.rmi.DBIterator;
 import de.willuhn.datasource.rmi.DBService;
@@ -108,7 +111,59 @@ public class KontoUtil
     
     return null;
   }
+
+  /**
+   * Sucht das Konto in der Datenbank.
+   * @param iban die IBAN.
+   * @return das gefundene Konto oder NULL, wenn es nicht existiert.
+   * @throws RemoteException
+   */
+  public static Konto findByIBAN(String iban) throws RemoteException
+  {
+    return findByIBAN(iban,-1);
+  }
   
+  /**
+   * Sucht das Konto in der Datenbank.
+   * @param iban die IBAN.
+   * @param flag das Flag, welches das Konto besitzen muss.
+   * @return das gefundene Konto oder NULL, wenn es nicht existiert.
+   * @throws RemoteException
+   */
+  public static Konto findByIBAN(String iban, int flag) throws RemoteException
+  {
+    iban = StringUtils.trimToNull(iban);
+    if (iban == null)
+      return null;
+    
+    DBService service = de.willuhn.jameica.hbci.Settings.getDBService();
+    DBIterator konten = service.createList(Konto.class);
+    konten.addFilter("lower(iban) = ?", iban.toLowerCase()); // case insensitive
+    while (konten.hasNext())
+    {
+      Konto test = (Konto) konten.next();
+      int current = test.getFlags();
+
+      if (flag == Konto.FLAG_NONE)
+      {
+        // Nur Konten ohne Flags zugelassen
+        if (current != flag)
+          continue;
+      }
+      else if (flag > 0)
+      {
+        // Ein Flag ist angegeben. Dann kommt das Konto nur
+        // in Frage, wenn es dieses Flag besitzt
+        if ((current & flag) != flag)
+          continue;
+      }
+      
+      return test;
+    }
+    
+    return null;
+  }
+
   /**
    * Liefert den Anfangssaldo eines Tages bzw. des 1. Tages nach diesem Datum mit Umsätzen
    * oder <code>0.0</code> wenn er noch nie abgefragt wurde.
@@ -124,16 +179,19 @@ public class KontoUtil
     // denen der Saldo 0 ist, duerfen wir das nicht als Filterkriterium nehmen sondern
     // das NOTBOOKED-Flag pruefen. Leider gibts in SQL keinen standardisierten
     // Binary-AND-Operator, sodass wir das manuell machen muessen.
-    java.sql.Date start = new java.sql.Date(DateUtil.startOfDay(datum).getTime());
+    java.sql.Date start = datum != null ? new java.sql.Date(DateUtil.startOfDay(datum).getTime()) : null;
 
     DBIterator list = UmsatzUtil.getUmsaetze();
     list.addFilter("konto_id = " + konto.getID());
-    list.addFilter("datum >= ?", new Object[] {start});
+    
+    if (start != null)
+      list.addFilter("datum >= ?", start);
+    
     while (list.hasNext())
     {
       Umsatz u = (Umsatz) list.next();
       // Wir nehmen den ersten Umsatz, der kein Vormerk-Flag hat
-      if ((u.getFlags() & Umsatz.FLAG_NOTBOOKED) == 0)
+      if (!u.hasFlag(Umsatz.FLAG_NOTBOOKED))
         return u.getSaldo() - u.getBetrag(); // Wir ziehen den Betrag noch ab, um den Saldo VOR der Buchung zu kriegen
     }
 
@@ -141,15 +199,20 @@ public class KontoUtil
     // frühere Umsätze.
     list = UmsatzUtil.getUmsaetzeBackwards();
     list.addFilter("konto_id = " + konto.getID());
-    list.addFilter("datum < ?", new Object[] {start});
+    
+    if (start != null)
+      list.addFilter("datum < ?", start);
+    
     while (list.hasNext())
     {
       Umsatz u = (Umsatz) list.next();
       // Wir nehmen den ersten Umsatz, der kein Vormerk-Flag hat
-      if ((u.getFlags() & Umsatz.FLAG_NOTBOOKED) == 0)
+      if (!u.hasFlag(Umsatz.FLAG_NOTBOOKED))
         return u.getSaldo();
     }
-    return 0.0d;
+    
+    // Keine Umsaetze gefunden. Wir nehmen den Saldo des Kontos selbst
+    return konto.getSaldo();
   }
 
   /**
@@ -162,18 +225,44 @@ public class KontoUtil
    */
   public static double getEndSaldo(Konto konto, Date datum) throws RemoteException
   {
+    java.sql.Date end = datum != null ? new java.sql.Date(DateUtil.endOfDay(datum).getTime()) : null;
+
     DBIterator list = UmsatzUtil.getUmsaetzeBackwards();
     list.addFilter("konto_id = " + konto.getID());
-    list.addFilter("datum <= ?", new Object[] { new java.sql.Date(DateUtil.endOfDay(datum).getTime())});
+    
+    if (end != null)
+      list.addFilter("datum <= ?", end);
+    
     while (list.hasNext())
     {
       Umsatz u = (Umsatz) list.next();
       
       // Wir nehmen den ersten Umsatz, der kein Vormerk-Flag hat
-      if ((u.getFlags() & Umsatz.FLAG_NOTBOOKED) == 0)
+      if (!u.hasFlag(Umsatz.FLAG_NOTBOOKED))
         return u.getSaldo();
     }
-    return 0.0d;
+    
+    // BUGZILLA 1682 Wir checken mal, ob wir eine Buchung direkt dahinter finden. Dann nehmen
+    // wir diese und generieren aus Zwischensumme und Betrag den Endsaldo
+    list = UmsatzUtil.getUmsaetze();
+    list.addFilter("konto_id = " + konto.getID());
+    
+    if (end != null)
+      list.addFilter("datum > ?", end);
+    
+    while (list.hasNext())
+    {
+      Umsatz u = (Umsatz) list.next();
+      
+      // Wir nehmen den ersten Umsatz, der kein Vormerk-Flag hat
+      if (!u.hasFlag(Umsatz.FLAG_NOTBOOKED))
+      {
+        return u.getSaldo() - u.getBetrag(); // Wir ziehen den Betrag noch ab, um den Saldo VOR der Buchung zu kriegen
+      }
+    }
+    
+    // Keine Umsaetze gefunden. Wir nehmen den Saldo des Kontos selbst
+    return konto.getSaldo();
   }
 
   /**
@@ -200,6 +289,28 @@ public class KontoUtil
   public static double getEinnahmen(Konto konto, Date from, Date to) throws RemoteException
   {
     return getSumme(konto, from, to, false);
+  }
+  
+  /**
+   * Liefert eine Liste der verfuegbaren Konto-Kategorien.
+   * @return Liste der verfuegbaren Konto-Kategorien. Niemals NULL sondern hoechstens eine leere Liste.
+   * @throws RemoteException
+   */
+  public static List<String> getGroups() throws RemoteException
+  {
+    return (List<String>) Settings.getDBService().execute("select kategorie from konto where kategorie is not null and kategorie != '' group by kategorie order by LOWER(kategorie)",null,new ResultSetExtractor()
+    {
+      /**
+       * @see de.willuhn.datasource.rmi.ResultSetExtractor#extract(java.sql.ResultSet)
+       */
+      public Object extract(ResultSet rs) throws RemoteException, SQLException
+      {
+        List<String> list = new ArrayList<String>();
+        while (rs.next())
+          list.add(rs.getString(1));
+        return list;
+      }
+    });
   }
 
   /**
@@ -245,24 +356,4 @@ public class KontoUtil
     return d == null ? 0.0d : Math.abs(d.doubleValue());
   }
 
-
 }
-
-
-
-/**********************************************************************
- * $Log: KontoUtil.java,v $
- * Revision 1.4  2011/01/20 17:13:21  willuhn
- * @C HBCIProperties#startOfDay und HBCIProperties#endOfDay nach Jameica in DateUtil verschoben
- *
- * Revision 1.3  2010-09-02 12:25:13  willuhn
- * @N BUGZILLA 900
- *
- * Revision 1.2  2010/06/07 22:41:14  willuhn
- * @N BUGZILLA 844/852
- *
- * Revision 1.1  2010/03/16 13:43:56  willuhn
- * @N CSV-Import von Ueberweisungen und Lastschriften
- * @N Versionierbarkeit von serialisierten CSV-Profilen
- *
- **********************************************************************/

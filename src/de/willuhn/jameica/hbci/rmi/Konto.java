@@ -104,6 +104,20 @@ public interface Konto extends HibiscusDBObject, Checksum, Flaggable
 	 */
 	public String getPassportClass() throws RemoteException;
 
+  /**
+   * Liefert die Java-Klasse des zu verwendenden Backends.
+   * @return Java-Klasse des Backends.
+   * @throws RemoteException
+   */
+  public String getBackendClass() throws RemoteException;
+  
+  /**
+   * Liefert die Kontoart. Kann NULL sein.
+   * @return die Kontoart.
+   * @throws RemoteException
+   */
+  public Integer getAccountType() throws RemoteException;
+
 	/**
 	 * Liefert die Waehrungs-Bezeichnung der Bankverbindung.
 	 * 
@@ -162,6 +176,20 @@ public interface Konto extends HibiscusDBObject, Checksum, Flaggable
 	 * @throws RemoteException
 	 */
 	public void setPassportClass(String passport) throws RemoteException;
+
+  /**
+   * Speichert die Java-Klasse des zu verwendenden Backends.
+   * @param backend Java-Klasse des Backends.
+   * @throws RemoteException
+   */
+  public void setBackendClass(String backend) throws RemoteException;
+  
+  /**
+   * Speichert die Kontoart. Kann NULL sein.
+   * @param i die Kontoart.
+   * @throws RemoteException
+   */
+  public void setAccountType(Integer i) throws RemoteException;
 
 	/**
 	 * Speichert die Kundennummer.
@@ -262,8 +290,29 @@ public interface Konto extends HibiscusDBObject, Checksum, Flaggable
    * @throws RemoteException
    */
   public DBIterator getAuslandsUeberweisungen() throws RemoteException;
+  
+  /**
+   * Liefert eine Liste aller SEPA-Lastschriften, die ueber dieses Konto getaetigt wurden.
+   * @return Liste der SEPA-Lastschriften.
+   * @throws RemoteException
+   */
+  public DBIterator getSepaLastschriften() throws RemoteException;
 
-	/**
+  /**
+   * Liefert eine Liste aller SEPA-Sammellastschriften, die ueber dieses Konto getaetigt wurden.
+   * @return Liste der SEPA-Sammellastschriften.
+   * @throws RemoteException
+   */
+  public DBIterator getSepaSammelLastschriften() throws RemoteException;
+
+  /**
+   * Liefert eine Liste aller SEPA-Sammelueberweisungen, die ueber dieses Konto getaetigt wurden.
+   * @return Liste der SEPA-Sammelueberweisungen.
+   * @throws RemoteException
+   */
+  public DBIterator getSepaSammelUeberweisungen() throws RemoteException;
+
+  /**
 	 * Liefert alle Dauerauftraege, die fuer das Konto vorliegen. Dabei werden
 	 * auch jene geliefert, die lokal erstellt, jedoch noch nicht zur Bank
 	 * hochgeladen wurden.
@@ -271,6 +320,15 @@ public interface Konto extends HibiscusDBObject, Checksum, Flaggable
 	 * @throws RemoteException
 	 */
 	public DBIterator getDauerauftraege() throws RemoteException;
+
+  /**
+   * Liefert alle SEPA-Dauerauftraege, die fuer das Konto vorliegen. Dabei werden
+   * auch jene geliefert, die lokal erstellt, jedoch noch nicht zur Bank
+   * hochgeladen wurden.
+   * @return Liste der SEPA-Dauerauftraege.
+   * @throws RemoteException
+   */
+  public DBIterator getSepaDauerauftraege() throws RemoteException;
 
 	/**
 	 * Liefert alle Lastschriften, die fuer das Konto vorliegen.
@@ -349,49 +407,19 @@ public interface Konto extends HibiscusDBObject, Checksum, Flaggable
    * @throws RemoteException
    */
   public void setIban(String iban) throws RemoteException;
+  
+  /**
+   * Liefert einen Freitext mit der Kategorie.
+   * @return Freitext mit der Kategorie.
+   * @throws RemoteException
+   */
+  public String getKategorie() throws RemoteException;
+  
+  /**
+   * Speichert die Kategorie.
+   * @param kategorie die Kategorie.
+   * @throws RemoteException
+   */
+  public void setKategorie(String kategorie) throws RemoteException;
+  
 }
-
-/*******************************************************************************
- * $Log: Konto.java,v $
- * Revision 1.47  2011/10/18 09:28:14  willuhn
- * @N Gemeinsames Basis-Interface "HibiscusDBObject" fuer alle Entities (ausser Version und DBProperty) mit der Implementierung "AbstractHibiscusDBObject". Damit koennen jetzt zu jedem Fachobjekt beliebige Meta-Daten in der Datenbank gespeichert werden. Wird im ersten Schritt fuer die Reminder verwendet, um zu einem Auftrag die UUID des Reminders am Objekt speichern zu koennen
- *
- * Revision 1.46  2010/06/17 12:16:52  willuhn
- * @N BUGZILLA 530
- *
- * Revision 1.45  2010/06/07 22:41:13  willuhn
- * @N BUGZILLA 844/852
- *
- * Revision 1.44  2010/04/22 16:10:43  willuhn
- * @C Saldo kann bei Offline-Konten zwar nicht manuell bearbeitet werden, dafuer wird er aber beim Zuruecksetzen des Kontos (heisst jetzt "Saldo und Datum zuruecksetzen" statt "Kontoauszugsdatum zuruecksetzen") jetzt ebenfalls geloescht
- *
- * Revision 1.43  2010/04/22 12:42:02  willuhn
- * @N Erste Version des Supports fuer Offline-Konten
- *
- * Revision 1.42  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.41  2009/09/15 00:23:34  willuhn
- * @N BUGZILLA 745
- *
- * Revision 1.40  2009/03/17 23:44:15  willuhn
- * @N BUGZILLA 159 - Auslandsueberweisungen. Erste Version
- *
- * Revision 1.39  2009/01/26 23:17:46  willuhn
- * @R Feld "synchronize" aus Konto-Tabelle entfernt. Aufgrund der Synchronize-Optionen pro Konto ist die Information redundant und ergibt sich implizit, wenn fuer ein Konto irgendeine der Synchronisations-Optionen aktiviert ist
- *
- * Revision 1.38  2009/01/04 17:43:29  willuhn
- * @N BUGZILLA 532
- *
- * Revision 1.37  2007/12/11 12:23:26  willuhn
- * @N Bug 355
- *
- * Revision 1.36  2007/06/04 17:37:00  willuhn
- * @D javadoc
- * @C java 1.4 compatibility
- * @N table colorized
- *
- * Revision 1.35  2007/06/04 15:59:03  jost
- * Neue Auswertung: Einnahmen/Ausgaben
- ******************************************************************************/

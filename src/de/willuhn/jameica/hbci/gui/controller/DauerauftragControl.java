@@ -27,16 +27,16 @@ import de.willuhn.jameica.gui.input.LabelInput;
 import de.willuhn.jameica.gui.input.SelectInput;
 import de.willuhn.jameica.gui.input.TextInput;
 import de.willuhn.jameica.hbci.HBCI;
-import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.TextSchluessel;
 import de.willuhn.jameica.hbci.gui.action.DauerauftragNew;
 import de.willuhn.jameica.hbci.gui.dialogs.TurnusDialog;
 import de.willuhn.jameica.hbci.gui.input.AddressInput;
+import de.willuhn.jameica.hbci.gui.input.KontoInput;
 import de.willuhn.jameica.hbci.gui.parts.DauerauftragList;
 import de.willuhn.jameica.hbci.rmi.Dauerauftrag;
 import de.willuhn.jameica.hbci.rmi.HibiscusTransfer;
 import de.willuhn.jameica.hbci.rmi.Turnus;
-import de.willuhn.jameica.hbci.server.DBPropertyUtil;
+import de.willuhn.jameica.hbci.server.TurnusHelper;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
@@ -54,7 +54,6 @@ public class DauerauftragControl extends AbstractTransferControl {
 	private DateInput letzteZahlung	   = null;
 	private SelectInput textschluessel = null;
 	
-  private Dauerauftrag transfer      = null;
   private TypedProperties bpd        = null;
 
   private DauerauftragList list      = null;
@@ -68,20 +67,11 @@ public class DauerauftragControl extends AbstractTransferControl {
   }
 
 	/**
-	 * Ueberschrieben, damit wir bei Bedarf einen neuen Dauerauftrag erzeugen koennen.
 	 * @see de.willuhn.jameica.hbci.gui.controller.AbstractTransferControl#getTransfer()
 	 */
 	public HibiscusTransfer getTransfer() throws RemoteException
 	{
-    if (transfer != null)
-      return transfer;
-
-    Object o = getCurrentObject();
-    if (o != null && (o instanceof Dauerauftrag))
-      return (Dauerauftrag) o;
-      
-    transfer = (Dauerauftrag) Settings.getDBService().createObject(Dauerauftrag.class,null);
-    return transfer;
+	  return (Dauerauftrag) this.getCurrentObject();
 	}
 	
 	/**
@@ -91,15 +81,8 @@ public class DauerauftragControl extends AbstractTransferControl {
 	 */
 	private TypedProperties getBPD() throws RemoteException
 	{
-	  if (this.bpd != null)
-	    return this.bpd;
-	  
-	  Dauerauftrag auftrag = (Dauerauftrag) this.getTransfer();
-	  if (auftrag.isActive())
-      this.bpd = DBPropertyUtil.getBPD(auftrag.getKonto(),DBPropertyUtil.BPD_QUERY_DAUER_EDIT);
-	  else
-	    this.bpd = new TypedProperties(); // Der Auftrag ist noch nicht aktiv - dann gibt es noch keine Einschraenkungen
-	  
+	  if (this.bpd == null)
+	    this.bpd = new TypedProperties();
 	  return this.bpd;
 	}
 
@@ -263,9 +246,9 @@ public class DauerauftragControl extends AbstractTransferControl {
    * Ueberschreiben wir, um die Auswahl des Kontos zu verbieten, wenn der Dauerauftrag schon aktiv ist.
    * @see de.willuhn.jameica.hbci.gui.controller.AbstractTransferControl#getKontoAuswahl()
    */
-  public Input getKontoAuswahl() throws RemoteException
+  public KontoInput getKontoAuswahl() throws RemoteException
   {
-    Input i = super.getKontoAuswahl();
+    KontoInput i = super.getKontoAuswahl();
     i.setEnabled(!((Dauerauftrag)getTransfer()).isActive());
     return i;
   }
@@ -352,22 +335,7 @@ public class DauerauftragControl extends AbstractTransferControl {
    */
   public synchronized boolean handleStore()
   {
-    try
-    {
-      Dauerauftrag d = (Dauerauftrag) getTransfer();
-      d.setErsteZahlung((Date)getErsteZahlung().getValue());
-      d.setLetzteZahlung((Date)getLetzteZahlung().getValue());
-      d.setTurnus((Turnus)getTurnus().getValue());
-      TextSchluessel s = (TextSchluessel) getTextSchluessel().getValue();
-      d.setTextSchluessel(s == null ? null : s.getCode());
-      return super.handleStore();
-    }
-    catch (RemoteException e)
-    {
-      Logger.error("error while saving dauerauftrag",e);
-      GUI.getStatusBar().setErrorText(i18n.tr("Fehler beim Speichern des Dauerauftrages"));
-    }
-    return false;
+    return true;
   }
 
   
@@ -383,10 +351,13 @@ public class DauerauftragControl extends AbstractTransferControl {
     {
       try
       {
-        final Dauerauftrag t = (Dauerauftrag) getTransfer();
-        Date ez = (Date) ersteZahlung.getValue();
-        t.setErsteZahlung(ez);
-        Date next = t.getNaechsteZahlung();
+        Date first = (Date) getErsteZahlung().getValue();
+        Date last  = (Date) getLetzteZahlung().getValue();
+        Turnus t   = (Turnus) getTurnus().getValue();
+        if (first == null || t == null)
+          return;
+
+        Date next = TurnusHelper.getNaechsteZahlung(first,last,t,first);
         if (next != null)
           ersteZahlung.setComment(i18n.tr("Nächste: {0}", HBCI.DATEFORMAT.format(next)));
         else

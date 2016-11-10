@@ -34,6 +34,7 @@ import de.willuhn.jameica.hbci.server.DBSupportH2Impl;
 import de.willuhn.jameica.hbci.server.HBCIDBServiceImpl;
 import de.willuhn.jameica.plugin.AbstractPlugin;
 import de.willuhn.jameica.plugin.Version;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.util.CustomDecimalFormat;
 import de.willuhn.logging.Level;
@@ -46,6 +47,11 @@ import de.willuhn.util.I18N;
  */
 public class HBCI extends AbstractPlugin
 {
+  /**
+   * Flag, mit dem das automatische Berechnen der IBAN aktiviert werden kann.
+   */
+  public final static boolean COMPLETE_IBAN = Boolean.FALSE.booleanValue(); // hab ich nur so umstaendlich geschrieben, damit die if's von Eclipse nicht als "dead code" erkannt werden
+  
   /**
    * Datums-Format dd.MM.yyyy HH:mm.
    */
@@ -95,7 +101,8 @@ public class HBCI extends AbstractPlugin
     LOGMAPPING.put(Level.ERROR, new Integer(HBCIUtils.LOG_ERR));
     LOGMAPPING.put(Level.WARN,  new Integer(HBCIUtils.LOG_WARN));
     LOGMAPPING.put(Level.INFO,  new Integer(HBCIUtils.LOG_INFO));
-    LOGMAPPING.put(Level.DEBUG, new Integer(HBCIUtils.LOG_DEBUG2));
+    LOGMAPPING.put(Level.DEBUG, new Integer(HBCIUtils.LOG_DEBUG));
+    LOGMAPPING.put(Level.TRACE, new Integer(HBCIUtils.LOG_DEBUG2));
 
     call(new ServiceCall()
     {
@@ -179,11 +186,14 @@ public class HBCI extends AbstractPlugin
       // Callback erzeugen
       this.callback = null;
       
+      final BeanService service = Application.getBootLoader().getBootable(BeanService.class);
+
       if (callbackClass != null && callbackClass.length() > 0)
       {
         try
         {
-          this.callback = (HBCICallback) Application.getClassLoader().load(callbackClass).newInstance();
+          Class c = Class.forName(callbackClass);
+          this.callback = (HBCICallback) service.get(c);
           Logger.info("callback: " + this.callback.getClass().getName());
         }
         catch (Throwable t)
@@ -197,7 +207,7 @@ public class HBCI extends AbstractPlugin
         if (Application.inServerMode())
           this.callback = new HBCICallbackConsole();
         else
-          this.callback = new HBCICallbackSWT();
+          this.callback = service.get(HBCICallbackSWT.class);
       }
       //////////////////////////////////
 
@@ -206,6 +216,7 @@ public class HBCI extends AbstractPlugin
       
       Version v = getManifest().getVersion(); // client.product.name darf hoechstens 25 Zeichen lang sein
       this.hbciProps.put("client.product.name","HBCI4Java (Hibiscus " + v.getMajor() + "." + v.getMinor() + ")");
+      this.hbciProps.put("client.product.version",v.getMajor() + "." + v.getMinor()); // Maximal 5 Zeichen
       
       // Wir aktivieren das Infopoint-Feature erstmal. Ob wir das Senden
       // dann zulassen entscheiden wir erst, wenn der Callback aufgerufen
@@ -229,8 +240,8 @@ public class HBCI extends AbstractPlugin
       this.hbciProps.put("log.loglevel.default",""+logLevel);
       this.hbciProps.put("client.errors.ignoreWrongDataSyntaxErrors","yes"); // BUGZILLA 1129
       
-      // Wenn das Jameica-Loglevel auf DEBUG steht, aktivieren wir per Default das SSL-Logging von HBCI4Java
-      if (Logger.getLevel().getValue() == Level.DEBUG.getValue())
+      // Wenn das Jameica-Loglevel auf DEBUG oder hoeher steht, aktivieren wir per Default das SSL-Logging von HBCI4Java
+      if (Logger.isLogging(Level.DEBUG))
         this.hbciProps.put("log.ssl.enable","1");
         
       //////////////////////////////////

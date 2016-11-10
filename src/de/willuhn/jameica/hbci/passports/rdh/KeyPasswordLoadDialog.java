@@ -20,7 +20,6 @@ import org.eclipse.swt.events.ControlEvent;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Label;
-import org.kapott.hbci.manager.HBCIUtils;
 import org.kapott.hbci.passport.HBCIPassport;
 import org.kapott.hbci.passport.HBCIPassportRDHNew;
 
@@ -29,9 +28,13 @@ import de.willuhn.jameica.gui.dialogs.PasswordDialog;
 import de.willuhn.jameica.gui.util.Color;
 import de.willuhn.jameica.gui.util.Container;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.rmi.Konto;
-import de.willuhn.jameica.hbci.server.hbci.HBCIFactory;
+import de.willuhn.jameica.hbci.synchronize.SynchronizeSession;
+import de.willuhn.jameica.hbci.synchronize.hbci.HBCISynchronizeBackend;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.logging.Logger;
 import de.willuhn.util.I18N;
 
 /**
@@ -51,21 +54,24 @@ public class KeyPasswordLoadDialog extends PasswordDialog
     super(POSITION_CENTER);
     setSize(550,SWT.DEFAULT);
 
-    Konto konto = HBCIFactory.getInstance().getCurrentKonto();
-    
     String s = null;
     try
     {
-      s = konto.getBezeichnung();
-      s += " [" + i18n.tr("Nr.") + " " + konto.getKontonummer();
-      String name = HBCIUtils.getNameForBLZ(konto.getBLZ());
-      if (name != null && name.length() > 0)
-        s += " - " + name;
-      s += "]";
+      BeanService service = Application.getBootLoader().getBootable(BeanService.class);
+      SynchronizeSession session = service.get(HBCISynchronizeBackend.class).getCurrentSession();
+      Konto konto = session != null ? session.getKonto() : null;
+      
+      if (konto != null)
+      {
+        s = konto.getBezeichnung();
+        String name = HBCIProperties.getNameForBank(konto.getBLZ());
+        if (name != null && name.length() > 0)
+          s += " [" + name + "]";
+      }
     }
     catch (Exception e)
     {
-      // ignore
+      Logger.error("unable to determine current konto",e);
     }
     
     String text = null;

@@ -20,12 +20,13 @@ import de.willuhn.jameica.gui.parts.CheckedContextMenuItem;
 import de.willuhn.jameica.gui.parts.ContextMenu;
 import de.willuhn.jameica.gui.parts.ContextMenuItem;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungDelete;
 import de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungExecute;
 import de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungExport;
 import de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungImport;
 import de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungNew;
-import de.willuhn.jameica.hbci.gui.action.DBObjectDelete;
 import de.willuhn.jameica.hbci.gui.action.Duplicate;
+import de.willuhn.jameica.hbci.gui.action.SepaUeberweisungMerge;
 import de.willuhn.jameica.hbci.gui.action.TerminableMarkExecuted;
 import de.willuhn.jameica.hbci.io.print.PrintSupportAuslandsUeberweisungList;
 import de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung;
@@ -50,9 +51,10 @@ public class AuslandsUeberweisungList extends ContextMenu
 	{
 		addItem(new SingleItem(i18n.tr("Öffnen"), new AuslandsUeberweisungNew(),"document-open.png"));
     addItem(new ContextMenuItem(i18n.tr("Neue SEPA-Überweisung..."), new UNeu(),"text-x-generic.png"));
-    addItem(new CheckedContextMenuItem(i18n.tr("Löschen..."), new DBObjectDelete(),"user-trash-full.png"));
+    addItem(new CheckedContextMenuItem(i18n.tr("Löschen..."), new AuslandsUeberweisungDelete(),"user-trash-full.png"));
     addItem(ContextMenuItem.SEPARATOR);
     addItem(new SingleItem(i18n.tr("Duplizieren..."), new Duplicate(),"edit-copy.png"));
+    addItem(new NotActiveMultiMenuItem(i18n.tr("Zu Sammelaufträgen zusammenfassen..."), new SepaUeberweisungMerge(),"stock_navigator-shift-right.png"));
     addItem(ContextMenuItem.SEPARATOR);
     addItem(new NotActiveSingleMenuItem(i18n.tr("Jetzt ausführen..."), new AuslandsUeberweisungExecute(),"emblem-important.png"));
     addItem(new NotActiveMultiMenuItem(i18n.tr("Als \"ausgeführt\" markieren..."), new TerminableMarkExecuted(),"emblem-default.png"));
@@ -105,15 +107,15 @@ public class AuslandsUeberweisungList extends ContextMenu
     {
     	super.handleAction(null);
     }
-	} 
-	
+	}
+
 	/**
 	 * Ueberschreiben wir, damit das Item nur dann aktiv ist, wenn die
 	 * Ueberweisung noch nicht ausgefuehrt wurde.
    */
   private class NotActiveSingleMenuItem extends CheckedContextMenuItem
 	{
-		
+
     /**
      * ct.
      * @param text anzuzeigender Text.
@@ -155,7 +157,7 @@ public class AuslandsUeberweisungList extends ContextMenu
    */
   private class NotActiveMultiMenuItem extends CheckedContextMenuItem
   {
-    
+
     /**
      * ct.
      * @param text anzuzeigender Text.
@@ -189,7 +191,7 @@ public class AuslandsUeberweisungList extends ContextMenu
       }
       catch (RemoteException e)
       {
-        Logger.error("unable to check if terminable is allready executed",e);
+        Logger.error("unable to check if terminable is already executed",e);
         Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Prüfen, ob Auftrag bereits ausgeführt wurde"),StatusBarMessage.TYPE_ERROR));
       }
       return false;

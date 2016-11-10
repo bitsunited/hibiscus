@@ -18,6 +18,7 @@ import java.util.Map;
 import de.willuhn.datasource.rmi.DBIterator;
 import de.willuhn.datasource.rmi.DBService;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.MetaKey;
 import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.rmi.Duplicatable;
 import de.willuhn.jameica.hbci.rmi.HibiscusDBObject;
@@ -50,10 +51,10 @@ public class OrderReminderMessageConsumer implements MessageConsumer
     ReminderMessage msg           = (ReminderMessage) message;
     Map<String,Serializable> data = (Map<String,Serializable>) msg.getData();
     Date termin                   = msg.getDate();
-    
+
     MultipleClassLoader loader = Application.getPluginLoader().getManifest(HBCI.class).getClassLoader();
     DBService service          = Settings.getDBService();
-    
+
     // 1. der zu duplizierende Auftrag
     Class type = loader.load((String) data.get("order.class"));
     String id  = (String) data.get("order.id");
@@ -72,35 +73,35 @@ public class OrderReminderMessageConsumer implements MessageConsumer
       HibiscusDBObject t = (HibiscusDBObject) list.next();
       // Wenn der Auftrag in den Meta-Daten die ID des gesuchten Auftrages hat,
       // dann ist er bereits erzeugt worden.
-      String from = t.getMeta("reminder.template",null);
+      String from = MetaKey.REMINDER_TEMPLATE.get(t);
       if (from != null && from.equals(id))
       {
-        Logger.debug("allready cloned by " + t.getMeta("reminder.creator","unknown"));
+        Logger.debug("already cloned by " + MetaKey.REMINDER_CREATOR.get(t));
         return;
       }
     }
-    
+
     // 3. Auftrag laden
     Duplicatable template = (Duplicatable) service.createObject(type,id);
-    
+
     // 4. Auftrag clonen und speichern
     HibiscusDBObject order = (HibiscusDBObject) template.duplicate();
     String hostname        = Application.getCallback().getHostname();
-    
+
     try
     {
       order.transactionBegin();
-      
+
       ((Terminable)order).setTermin(termin);      // Ziel-Datum uebernehmen
       order.store();                              // speichern, noetig, weil wir die ID brauchen
-      
+
       // Meta-Daten speichern
-      order.setMeta("reminder.creator",hostname);
-      order.setMeta("reminder.template",id);
+      MetaKey.REMINDER_CREATOR.set(order,hostname);
+      MetaKey.REMINDER_TEMPLATE.set(order,id);
 
       order.transactionCommit();
       Application.getMessagingFactory().sendSyncMessage(new ImportMessage(order)); //synchron senden, weil wir schon im Messaging-Thread sind
-      
+
       Logger.info("order " + type.getSimpleName() + ":" + id + " cloned by " + hostname + ", id: " + order.getID() + ", date: " + termin);
     }
     catch (Exception e)

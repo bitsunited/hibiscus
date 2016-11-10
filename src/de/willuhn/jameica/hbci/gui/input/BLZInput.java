@@ -13,11 +13,16 @@
 
 package de.willuhn.jameica.hbci.gui.input;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.commons.lang.StringUtils;
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
-import org.kapott.hbci.manager.HBCIUtils;
 
-import de.willuhn.jameica.gui.input.TextInput;
+import de.willuhn.jameica.gui.util.DelayedListener;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.system.Application;
@@ -28,8 +33,9 @@ import de.willuhn.util.I18N;
  * BUGZILLA 380
  * Vorkonfiguriertes Eingabe-Feld fuer BLZ.
  */
-public class BLZInput extends TextInput
+public class BLZInput extends AccountInput
 {
+  private List<Listener> blzListener = new ArrayList<Listener>();
   private Listener listener = null;
   private I18N i18n         = null;
 
@@ -44,13 +50,38 @@ public class BLZInput extends TextInput
     this.i18n     = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
     this.listener = new BLZListener();
 
-    this.setValidChars(HBCIProperties.HBCI_BLZ_VALIDCHARS + " ");
+    this.setValidChars(HBCIProperties.HBCI_BLZ_VALIDCHARS);
     this.setName(i18n.tr("BLZ"));
     this.setComment("");
     this.addListener(this.listener);
     
     // und einmal ausloesen
     this.listener.handleEvent(null);
+  }
+  
+  /**
+   * Registriert einen Listener, der ausgeloest wird, sobald eine bekannte BLZ eingegeben wurde.
+   * Das passiert sofort nach Eingabe, nicht erst bei Focus-Wechsel.
+   * @param l der Listener.
+   */
+  public void addBLZListener(Listener l)
+  {
+    this.blzListener.add(l);
+    
+  }
+  
+  /**
+   * @see de.willuhn.jameica.gui.input.TextInput#getControl()
+   */
+  @Override
+  public Control getControl()
+  {
+    Control c = super.getControl();
+    
+    // wir haengen noch einen Keyup-Listener an, um sofort bei Eingabe der BLZ ausloesen zu koennen
+    c.addListener(SWT.KeyUp, new DelayedListener(this.listener));
+    
+    return c;
   }
 
   /**
@@ -63,10 +94,8 @@ public class BLZInput extends TextInput
     this.listener.handleEvent(null);
   }
 
-
-
   /**
-   * Aktualisiert den Kommentar mit der BLZ.
+   * Aktualisiert den Kommentar mit der Bankbezeichnung.
    */
   private class BLZListener implements Listener
   {
@@ -82,39 +111,30 @@ public class BLZInput extends TextInput
         {
           // Wir schnipseln gleich noch Leerzeichen raus - aber nur, wenn welche drin stehen
           if (b.indexOf(' ') != -1)
-          {
             b = b.replaceAll(" ","");
-            BLZInput.super.setValue(b);
+          
+          if (b.length() == HBCIProperties.HBCI_BLZ_LENGTH)
+          {
+            String name = HBCIProperties.getNameForBank(b);
+            setComment(name);
+            if (StringUtils.trimToNull(name) != null)
+            {
+              arg0.data = b;
+              for (Listener l:blzListener)
+              {
+                l.handleEvent(arg0);
+              }
+            }
+            return;
           }
-          setComment(HBCIUtils.getNameForBLZ(b));
         }
-        else
-        {
-          setComment("");
-        }
+        setComment("");
       }
       catch (Exception e)
       {
-        // ignore
+        setComment("");
       }
     }
   }
   
 }
-
-
-/**********************************************************************
- * $Log: BLZInput.java,v $
- * Revision 1.4  2011/09/26 11:07:37  willuhn
- * @B setText nur aufrufen, wenn Leerzeichen entfernt wurden - siehe http://www.onlinebanking-forum.de/phpBB2/viewtopic.php?p=78495#78495
- *
- * Revision 1.3  2008-12-04 23:20:37  willuhn
- * @N BUGZILLA 310
- *
- * Revision 1.2  2007/07/16 12:51:15  willuhn
- * @D javadoc
- *
- * Revision 1.1  2007/04/09 22:45:12  willuhn
- * @N Bug 380
- *
- **********************************************************************/

@@ -14,14 +14,17 @@ CREATE TABLE konto (
   iban varchar(40) NULL,
   bic varchar(15) NULL,
   flags integer NULL,
-  saldo_available float
+  saldo_available float,
+  kategorie varchar(255) NULL,
+  backend_class varchar(1000),
+  acctype integer NULL
 );
 
 CREATE TABLE empfaenger (
   id serial primary key,
   kontonummer varchar(15) NULL,
   blz varchar(15) NULL,
-  name varchar(27) NOT NULL,
+  name varchar(255) NOT NULL,
   iban varchar(40) NULL,
   bic varchar(15) NULL,
   bank varchar(140) NULL,
@@ -56,10 +59,88 @@ CREATE TABLE aueberweisung (
   betrag float NOT NULL,
   zweck varchar(140),
   termin date NOT NULL,
+  banktermin integer NULL,
+  umbuchung integer NULL,
   ausgefuehrt integer NOT NULL,
-  ausgefuehrt_am timestamp
+  ausgefuehrt_am timestamp,
+  endtoendid varchar(35) NULL,
+  pmtinfid varchar(35) NULL,
+  purposecode varchar(10) NULL
 );
 
+CREATE TABLE sepalastschrift (
+  id serial primary key,
+  konto_id integer NOT NULL,
+  empfaenger_konto varchar(40) NOT NULL,
+  empfaenger_name varchar(140) NOT NULL,
+  empfaenger_bic varchar(15),
+  betrag float NOT NULL,
+  zweck varchar(140),
+  termin date NOT NULL,
+  ausgefuehrt integer NOT NULL,
+  ausgefuehrt_am timestamp,
+  endtoendid varchar(35),
+  creditorid varchar(35) NOT NULL,
+  mandateid varchar(35) NOT NULL,
+  sigdate date NOT NULL,
+  sequencetype varchar(8) NOT NULL,
+  sepatype varchar(8),
+  targetdate date,
+  orderid varchar(255),
+  pmtinfid varchar(35),
+  purposecode varchar(10)
+);
+
+CREATE TABLE sepaslast (
+  id serial primary key,
+  konto_id integer NOT NULL,
+  bezeichnung varchar(255) NOT NULL,
+  sequencetype varchar(8) NOT NULL,
+  sepatype varchar(8),
+  targetdate date,
+  termin date NOT NULL,
+  ausgefuehrt integer NOT NULL,
+  ausgefuehrt_am timestamp,
+  orderid varchar(255),
+  pmtinfid varchar(35)
+);
+
+CREATE TABLE sepaslastbuchung (
+  id serial primary key,
+  sepaslast_id integer NOT NULL,
+  empfaenger_konto varchar(40) NOT NULL,
+  empfaenger_name varchar(140) NOT NULL,
+  empfaenger_bic varchar(15),
+  betrag float NOT NULL,
+  zweck varchar(140),
+  endtoendid varchar(35),
+  creditorid varchar(35) NOT NULL,
+  mandateid varchar(35) NOT NULL,
+  sigdate date NOT NULL,
+  purposecode varchar(10)
+);
+
+CREATE TABLE sepasueb (
+  id serial primary key,
+  konto_id integer NOT NULL,
+  bezeichnung varchar(255) NOT NULL,
+  termin date NOT NULL,
+  ausgefuehrt integer NOT NULL,
+  ausgefuehrt_am timestamp,
+  pmtinfid varchar(35)
+);
+
+CREATE TABLE sepasuebbuchung (
+  id serial primary key,
+  sepasueb_id integer NOT NULL,
+  empfaenger_konto varchar(40) NOT NULL,
+  empfaenger_name varchar(140) NOT NULL,
+  empfaenger_bic varchar(15),
+  betrag float NOT NULL,
+  zweck varchar(140),
+  endtoendid varchar(35),
+  purposecode varchar(10)
+);
 
 CREATE TABLE protokoll (
   id serial primary key,
@@ -124,6 +205,27 @@ CREATE TABLE dauerauftrag (
   typ varchar(2) NULL
 );
 
+CREATE TABLE sepadauerauftrag (
+  id serial primary key,
+  konto_id integer NOT NULL,
+  empfaenger_konto varchar(40) NOT NULL,
+  empfaenger_name varchar(140) NOT NULL,
+  empfaenger_bic varchar(15),
+  betrag float NOT NULL,
+  zweck varchar(140),
+  erste_zahlung date NOT NULL,
+  letzte_zahlung date,
+  orderid varchar(100),
+  endtoendid varchar(35),
+  zeiteinheit integer NOT NULL,
+  intervall integer NOT NULL,
+  tag integer NOT NULL,
+  canchange integer NULL,
+  candelete integer NULL,
+  pmtinfid varchar(35),
+  purposecode varchar(10) NULL
+);
+
 CREATE TABLE turnus (
   id serial primary key,
   zeiteinheit integer NOT NULL,
@@ -154,7 +256,8 @@ CREATE TABLE slastschrift (
   bezeichnung varchar(255) NOT NULL,
   termin date NOT NULL,
   ausgefuehrt integer NOT NULL,
-  ausgefuehrt_am timestamp
+  ausgefuehrt_am timestamp,
+  warnungen integer NULL
 );
 
 CREATE TABLE slastbuchung (
@@ -167,7 +270,8 @@ CREATE TABLE slastbuchung (
   zweck varchar(27) NOT NULL,
   zweck2 varchar(27),
   zweck3 varchar(1000),
-  typ varchar(2) NULL
+  typ varchar(2) NULL,
+  warnung varchar(255)
 );
 
 CREATE TABLE sueberweisung (
@@ -176,7 +280,8 @@ CREATE TABLE sueberweisung (
   bezeichnung varchar(255) NOT NULL,
   termin date NOT NULL,
   ausgefuehrt integer NOT NULL,
-  ausgefuehrt_am timestamp
+  ausgefuehrt_am timestamp,
+  warnungen integer NULL
 );
 
 CREATE TABLE sueberweisungbuchung (
@@ -189,7 +294,8 @@ CREATE TABLE sueberweisungbuchung (
   zweck varchar(27) NOT NULL,
   zweck2 varchar(27),
   zweck3 varchar(1000),
-  typ varchar(2) NULL
+  typ varchar(2) NULL,
+  warnung varchar(255)
 );
 
 
@@ -211,7 +317,7 @@ CREATE TABLE version (
 CREATE TABLE property (
   id serial primary key,
   name varchar(1000) NOT NULL,
-  content varchar(1000) NULL
+  content varchar(20000) NULL
 );
 
 CREATE TABLE reminder (
@@ -231,6 +337,12 @@ ALTER TABLE slastbuchung ADD CONSTRAINT fk_slastschrift1 FOREIGN KEY (slastschri
 ALTER TABLE sueberweisung ADD CONSTRAINT fk_konto7 FOREIGN KEY (konto_id) REFERENCES konto (id) DEFERRABLE;
 ALTER TABLE sueberweisungbuchung ADD CONSTRAINT fk_sueberweisung1 FOREIGN KEY (sueberweisung_id) REFERENCES sueberweisung (id) DEFERRABLE;
 ALTER TABLE aueberweisung ADD CONSTRAINT fk_konto8 FOREIGN KEY (konto_id) REFERENCES konto (id) DEFERRABLE;
+ALTER TABLE sepalastschrift ADD CONSTRAINT fk_konto9 FOREIGN KEY (konto_id) REFERENCES konto (id) DEFERRABLE;
+ALTER TABLE sepaslast ADD CONSTRAINT fk_konto10 FOREIGN KEY (konto_id) REFERENCES konto (id) DEFERRABLE;
+ALTER TABLE sepaslastbuchung ADD CONSTRAINT fk_sepaslast1 FOREIGN KEY (sepaslast_id) REFERENCES sepaslast (id) DEFERRABLE;
+ALTER TABLE sepasueb ADD CONSTRAINT fk_konto11 FOREIGN KEY (konto_id) REFERENCES konto (id) DEFERRABLE;
+ALTER TABLE sepasuebbuchung ADD CONSTRAINT fk_sepasueb1 FOREIGN KEY (sepasueb_id) REFERENCES sepasueb (id) DEFERRABLE;
+ALTER TABLE sepadauerauftrag ADD CONSTRAINT fk_konto12 FOREIGN KEY (konto_id) REFERENCES konto (id) DEFERRABLE;
 
 INSERT INTO turnus (zeiteinheit,intervall,tag,initial)
   VALUES (2,1,1,1);
@@ -250,4 +362,4 @@ INSERT INTO turnus (zeiteinheit,intervall,tag,initial)
 INSERT INTO turnus (zeiteinheit,intervall,tag,initial)
   VALUES (1,1,1,1);
   
-INSERT INTO version (name,version) values ('db',38);
+INSERT INTO version (name,version) values ('db',59);

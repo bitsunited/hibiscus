@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/passports/ddv/Controller.java,v $
- * $Revision: 1.16 $
- * $Date: 2011/09/01 12:16:08 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -18,7 +12,8 @@ import java.rmi.RemoteException;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
 import org.kapott.hbci.callback.HBCICallback;
-import org.kapott.hbci.passport.HBCIPassportDDV;
+import org.kapott.hbci.passport.HBCIPassport;
+import org.kapott.hbci.passport.HBCIPassportChipcard;
 
 import de.willuhn.jameica.gui.AbstractControl;
 import de.willuhn.jameica.gui.AbstractView;
@@ -28,6 +23,7 @@ import de.willuhn.jameica.gui.input.CheckboxInput;
 import de.willuhn.jameica.gui.input.FileInput;
 import de.willuhn.jameica.gui.input.Input;
 import de.willuhn.jameica.gui.input.SelectInput;
+import de.willuhn.jameica.gui.input.SpinnerInput;
 import de.willuhn.jameica.gui.input.TextInput;
 import de.willuhn.jameica.gui.parts.CheckedContextMenuItem;
 import de.willuhn.jameica.gui.parts.ContextMenu;
@@ -36,12 +32,13 @@ import de.willuhn.jameica.gui.parts.TablePart;
 import de.willuhn.jameica.hbci.AccountContainer;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCICallbackSWT;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.gui.action.PassportTest;
 import de.willuhn.jameica.hbci.gui.dialogs.AccountContainerDialog;
+import de.willuhn.jameica.hbci.gui.dialogs.PassportPropertyDialog;
 import de.willuhn.jameica.hbci.gui.input.HBCIVersionInput;
 import de.willuhn.jameica.hbci.passports.ddv.rmi.Reader;
 import de.willuhn.jameica.hbci.passports.ddv.server.PassportHandleImpl;
-import de.willuhn.jameica.hbci.server.hbci.HBCIFactory;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.plugin.AbstractPlugin;
 import de.willuhn.jameica.system.Application;
@@ -63,6 +60,7 @@ public class Controller extends AbstractControl
   private TablePart kontoList       = null;
 
   // Eingabe-Felder
+  private TextInput pcscName        = null;
   private TextInput bezeichnung     = null;
   private SelectInput port          = null;
   private Input ctNumber            = null;
@@ -189,7 +187,17 @@ public class Controller extends AbstractControl
     this.readerPresets.addListener(new PresetListener());
     return this.readerPresets;
   }
-
+  
+  /**
+   * Liefert true, wenn das aktuelle Preset ein PCSC-Kartenleser ist.
+   * @return true, wenn das aktuelle Preset ein PCSC-Kartenleser ist.
+   */
+  private boolean isPCSC()
+  {
+    Reader r = (Reader) getReaderPresets().getValue();
+    return r.getType().isPCSC();
+  }
+  
   /**
    * Liefert eine Datei-Auswahl fuer den CTAPI-Treiber.
    * @return Auswahl-Feld.
@@ -200,7 +208,8 @@ public class Controller extends AbstractControl
       return this.ctapi;
     this.ctapi = new FileInput(getConfig().getCTAPIDriver());
     this.ctapi.setName(i18n.tr("CTAPI Treiber-Datei"));
-    this.ctapi.setMandatory(true);
+    this.ctapi.setEnabled(!isPCSC());
+    this.ctapi.setMandatory(!isPCSC());
     return this.ctapi;
   }
 
@@ -214,6 +223,7 @@ public class Controller extends AbstractControl
       return this.port;
 
     this.port = new SelectInput(DDVConfig.PORTS, getConfig().getPort());
+    this.port.setEnabled(!isPCSC());
     this.port.setComment(i18n.tr("meist COM/USB"));
     this.port.setName(i18n.tr("Port des Lesers"));
     return this.port;
@@ -228,7 +238,8 @@ public class Controller extends AbstractControl
     if (this.ctNumber != null)
       return this.ctNumber;
 
-    this.ctNumber = new TextInput(Integer.toString(getConfig().getCTNumber()));
+    this.ctNumber = new SpinnerInput(0,4,getConfig().getCTNumber());
+    this.ctNumber.setEnabled(!isPCSC());
     this.ctNumber.setName(i18n.tr("Index des Lesers"));
     this.ctNumber.setComment(i18n.tr("meist 0"));
     return this.ctNumber;
@@ -249,6 +260,21 @@ public class Controller extends AbstractControl
   }
 
   /**
+   * Liefert ein Eingabe-Feld fuer den Namen des Kartenlesers bei PCSC.
+   * @return Bezeichnung.
+   */
+  public Input getPCSCName()
+  {
+    if (this.pcscName != null)
+      return this.pcscName;
+    this.pcscName = new TextInput(getConfig().getPCSCName());
+    this.pcscName.setHint(i18n.tr("nur eingeben, wenn mehrere Leser vorhanden"));
+    this.pcscName.setEnabled(isPCSC());
+    this.pcscName.setName(i18n.tr("Identifier des PC/SC-Kartenlesers"));
+    return this.pcscName;
+  }
+
+  /**
    * Liefert das Eingabe-Feld fuer die Index-Nummer des HBCI-Zugangs.
    * @return Eingabe-Feld.
    */
@@ -257,7 +283,7 @@ public class Controller extends AbstractControl
     if (this.entryIndex != null)
       return this.entryIndex;
 
-    this.entryIndex = new TextInput(Integer.toString(getConfig().getEntryIndex()));
+    this.entryIndex = new SpinnerInput(1,4,getConfig().getEntryIndex());
     this.entryIndex.setName(i18n.tr("Index des HBCI-Zugangs"));
     this.entryIndex.setComment(i18n.tr("meist 1"));
     return this.entryIndex;
@@ -327,6 +353,7 @@ public class Controller extends AbstractControl
               getReaderPresets().setValue(reader);
   
               getBezeichnung().setValue(config.getName());
+              getPCSCName().setValue(config.getPCSCName());
               getCTAPI().setValue(config.getCTAPIDriver());
               getPort().setValue(config.getPort());
               getCTNumber().setValue(config.getCTNumber());
@@ -365,6 +392,59 @@ public class Controller extends AbstractControl
     };
     Application.getController().start(task);
   }
+
+  /**
+   * Zeigt die BPD/UPD des Passports an.
+   */
+  public synchronized void handleDisplayProperties()
+  {
+    HBCIPassport passport = null;
+    try
+    {
+      // Ist hier etwas umstaendlich, weil wir das Handle
+      // nicht aufmachen duerfen. Wuerden wir das tun, dann
+      // wuerde HBCI4Java automatisch die UPD abrufen wollen,
+      // was fehlschlagen wird, wenn wir ungueltige Daten
+      // auf der Karte haben. Auf diese Weise hier koennen
+      // wir aber die Daten ohne Bank-Kontakt aendern
+      AbstractPlugin plugin = Application.getPluginLoader().getPlugin(HBCI.class);
+      HBCICallback callback = ((HBCI)plugin).getHBCICallback();
+      if (callback != null && (callback instanceof HBCICallbackSWT))
+        ((HBCICallbackSWT)callback).setCurrentHandle(new PassportHandleImpl(getConfig()));
+
+      passport = DDVConfigFactory.createPassport(getConfig());
+
+      new PassportPropertyDialog(PassportPropertyDialog.POSITION_CENTER,passport).open();
+    }
+    catch (OperationCanceledException oce)
+    {
+      Logger.info("operation cancelled");
+    }
+    catch (ApplicationException e)
+    {
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr(e.getMessage()),StatusBarMessage.TYPE_ERROR));
+    }
+    catch (Throwable t)
+    {
+      Logger.error("error while displaying BPD/UPD",t);
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler Anzeigen der BPD/UPD"),StatusBarMessage.TYPE_ERROR));
+    }
+    finally
+    {
+      if (passport != null)
+      {
+        try
+        {
+          passport.close();
+        }
+        catch (Exception e)
+        {
+          Logger.error("error while closing passport",e);
+        }
+      }
+    }
+  }
+
 
   /**
    * Erstellt eine neue Kartenleser-Config.
@@ -415,31 +495,22 @@ public class Controller extends AbstractControl
   {
     try
     {
-      try
+      if (!isPCSC())
       {
-        getConfig().setCTNumber(Integer.parseInt((String) getCTNumber().getValue()));
+        getConfig().setCTNumber((Integer) getCTNumber().getValue());
+        getConfig().setPort((String) getPort().getValue());
+        getConfig().setCTAPIDriver((String) getCTAPI().getValue());
       }
-      catch (Exception e)
+      else
       {
-        Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Bitte geben Sie im Feld \"Index des Lesers\" eine gültige Zahl ein."),StatusBarMessage.TYPE_ERROR));
-        return false;
+        getConfig().setPCSCName((String) getPCSCName().getValue());
       }
 
-      try
-      {
-        getConfig().setEntryIndex(Integer.parseInt((String) getEntryIndex().getValue()));
-      }
-      catch (Exception e)
-      {
-        Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Bitte geben Sie im Feld \"Index des HBCI-Zugangs\" eine gültige Zahl ein."),StatusBarMessage.TYPE_ERROR));
-        return false;
-      }
+      getConfig().setEntryIndex((Integer) getEntryIndex().getValue());
+      getConfig().setSoftPin((Boolean) getSoftPin().getValue());
 
       getConfig().setKonten(getKontoAuswahl().getItems());
       getConfig().setReaderPreset((Reader) getReaderPresets().getValue());
-      getConfig().setPort((String) getPort().getValue());
-      getConfig().setSoftPin((Boolean) getSoftPin().getValue());
-      getConfig().setCTAPIDriver((String) getCTAPI().getValue());
       getConfig().setHBCIVersion((String) getHBCIVersion().getValue());
       getConfig().setName((String) getBezeichnung().getValue());
       DDVConfigFactory.store(getConfig());
@@ -492,7 +563,7 @@ public class Controller extends AbstractControl
     Application.getController().start(new BackgroundTask() {
       public void run(ProgressMonitor monitor) throws ApplicationException
       {
-        HBCIPassportDDV passport = null;
+        HBCIPassportChipcard passport = null;
         try
         {
           // Ist hier etwas umstaendlich, weil wir das Handle
@@ -519,7 +590,10 @@ public class Controller extends AbstractControl
           passport.setCountry(container.country);
           
           passport.saveChanges();
+          
+          
           passport.saveBankData();
+          Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Bankdaten gespeichert"),StatusBarMessage.TYPE_SUCCESS));
         }
         catch (ApplicationException ae)
         {
@@ -532,7 +606,7 @@ public class Controller extends AbstractControl
         }
         catch (Exception e)
         {
-          if (HBCIFactory.getCause(e,OperationCanceledException.class) != null)
+          if (HBCIProperties.getCause(e,OperationCanceledException.class) != null)
           {
             Logger.info("operation cancelled");
             Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Vorgang abgebrochen"),StatusBarMessage.TYPE_ERROR));
@@ -580,32 +654,44 @@ public class Controller extends AbstractControl
         if (r == null)
           return;
 
-        GUI.getView().setErrorText(""); // Fehlertext erstmal resetten
-
         if (!r.isSupported())
         {
           GUI.getView().setErrorText(i18n.tr("Der ausgewählte Kartenleser wird von Hibiscus nicht unterstützt"));
           return;
         }
+        
+        boolean pcsc = isPCSC();
+        getCTAPI().setEnabled(!pcsc);
+        getCTNumber().setEnabled(!pcsc);
+        getPort().setEnabled(!pcsc);
+        getPCSCName().setEnabled(pcsc);
 
-        String s = r.getCTAPIDriver();
-        if (s != null && s.length() > 0)
+        if (!pcsc)
         {
-          File f = new File(s);
-          if (!f.exists())
-            GUI.getView().setErrorText(i18n.tr("CTAPI-Treiber nicht gefunden. Bitte Treiber installieren."));
+          String s = r.getCTAPIDriver();
+          if (s != null && s.length() > 0)
+          {
+            File f = new File(s);
+            if (!f.exists())
+              GUI.getView().setErrorText(i18n.tr("CTAPI-Treiber nicht gefunden. Bitte Treiber installieren."));
+          }
+          
+          String port = r.getPort();
+          if (port != null)
+            getPort().setPreselected(port);
+          
+          int ctNumber = r.getCTNumber();
+          if (ctNumber >= 0)
+            getCTNumber().setValue(new Integer(ctNumber));
+
+          getCTAPI().setValue(s);
+        }
+        else
+        {
+          getCTAPI().setValue("");
         }
         
-        String port = r.getPort();
-        if (port != null)
-          getPort().setPreselected(port);
-        
-        int ctNumber = r.getCTNumber();
-        if (ctNumber != -1)
-          getCTNumber().setValue(new Integer(ctNumber));
-
-     		getCTAPI().setValue(s);
-     		getSoftPin().setValue(new Boolean(r.useSoftPin()));
+        getSoftPin().setValue(new Boolean(r.useSoftPin()));
     	}
     	catch (Exception e)
     	{
@@ -615,47 +701,3 @@ public class Controller extends AbstractControl
     }
   }
 }
-
-/*******************************************************************************
- * $Log: Controller.java,v $
- * Revision 1.16  2011/09/01 12:16:08  willuhn
- * @N Kartenleser-Suche kann jetzt abgebrochen werden
- * @N Erster Code fuer javax.smartcardio basierend auf dem OCF-Code aus HBCI4Java 2.5.8
- *
- * Revision 1.15  2011-09-01 09:40:53  willuhn
- * @R Biometrie-Support bei Kartenlesern entfernt - wurde nie benutzt
- *
- * Revision 1.14  2011-06-17 08:49:19  willuhn
- * @N Contextmenu im Tree mit den Bank-Zugaengen
- * @N Loeschen von Bank-Zugaengen direkt im Tree
- *
- * Revision 1.13  2011-05-03 16:44:08  willuhn
- * @C Auswahl des Presets ueber Combo-Box statt DialogInput
- *
- * Revision 1.12  2011-04-29 11:38:58  willuhn
- * @N Konfiguration der HBCI-Medien ueberarbeitet. Es gibt nun direkt in der Navi einen Punkt "Bank-Zugaenge", in der alle Medien angezeigt werden.
- *
- * Revision 1.11  2011-04-28 07:34:43  willuhn
- * @R Summen-Zeile nicht mehr anzeigen - unnuetz
- *
- * Revision 1.10  2010-10-20 14:28:47  willuhn
- * @B Neue Kartenleser-Config wurde nicht in Factory registriert - siehe http://www.onlinebanking-forum.de/phpBB2/viewtopic.php?p=70575#70575
- *
- * Revision 1.9  2010-10-17 21:58:56  willuhn
- * @C Aendern der Bankdaten auf der Karte auch dann moeglich, wenn auf dem Slot ungueltige Daten stehen
- *
- * Revision 1.8  2010-09-07 15:28:06  willuhn
- * @N BUGZILLA 391 - Kartenleser-Konfiguration komplett umgebaut. Damit lassen sich jetzt beliebig viele Kartenleser und Konfigurationen parellel einrichten
- *
- * Revision 1.7  2010-07-22 22:36:24  willuhn
- * @N Code-Cleanup
- *
- * Revision 1.6  2010-07-13 11:36:52  willuhn
- * @C Fehlerhandling
- *
- * Revision 1.5  2010-07-13 10:55:29  willuhn
- * @N Erster Code zum Aendern der Bank-Daten direkt auf der Karte. Muss dringend noch getestet werden - das will ich aber nicht mit meiner Karte machen, weil ich mir schonmal meine Karte mit Tests zerschossen hatte und die aber taeglich brauche ;)
- *
- * Revision 1.4  2010/06/17 11:45:49  willuhn
- * @C kompletten Code aus "hbci_passport_ddv" in Hibiscus verschoben - es macht eigentlich keinen Sinn mehr, das in separaten Projekten zu fuehren
- ******************************************************************************/

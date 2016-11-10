@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/dialogs/AuslandsUeberweisungDialog.java,v $
- * $Revision: 1.3 $
- * $Date: 2011/05/11 10:05:23 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -21,6 +15,7 @@ import de.willuhn.jameica.gui.util.Color;
 import de.willuhn.jameica.gui.util.Container;
 import de.willuhn.jameica.gui.util.SimpleContainer;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung;
 import de.willuhn.jameica.hbci.server.VerwendungszweckUtil;
 
@@ -57,7 +52,7 @@ public class AuslandsUeberweisungDialog extends AbstractExecuteDialog
 		Input empfName = new LabelInput(ueb.getGegenkontoName());
 		group.addLabelPair(i18n.tr("Name des Empfänger"),empfName);
 
-		Input empfKto = new LabelInput(ueb.getGegenkontoNummer());
+		Input empfKto = new LabelInput(HBCIProperties.formatIban(ueb.getGegenkontoNummer()));
 		group.addLabelPair(i18n.tr("IBAN des Empfängers"),empfKto);
 
     Input empfBic = new LabelInput(ueb.getGegenkontoBLZ());
@@ -68,27 +63,16 @@ public class AuslandsUeberweisungDialog extends AbstractExecuteDialog
     betrag.setColor(Color.ERROR);
     group.addLabelPair(i18n.tr("Betrag"),betrag);
 
+    if (ueb.isTerminUeberweisung())
+    {
+      Input termin = new LabelInput(HBCI.DATEFORMAT.format(ueb.getTermin()));
+      group.addLabelPair(i18n.tr("Erinnerungstermin"),termin);
+    }
+
     group.addHeadline(i18n.tr("Verwendungszweck"));
     group.addText(VerwendungszweckUtil.toString(ueb,"\n"),false);
     
-    group.addText(i18n.tr("Sind Sie sicher, daß Sie den Auftrag jetzt ausführen wollen?") + "\n",true);
-
     super.paint(parent);
     getShell().setMinimumSize(getShell().computeSize(SWT.DEFAULT,SWT.DEFAULT));
   }
 }
-
-
-/**********************************************************************
- * $Log: AuslandsUeberweisungDialog.java,v $
- * Revision 1.3  2011/05/11 10:05:23  willuhn
- * @N Bestaetigungsdialoge ueberarbeitet (Buttons mit Icons, Verwendungszweck-Anzeige via VerwendungszweckUtil, keine Labelgroups mehr, gemeinsame Basis-Klasse)
- *
- * Revision 1.2  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.1  2009/03/13 00:25:12  willuhn
- * @N Code fuer Auslandsueberweisungen fast fertig
- *
- **********************************************************************/

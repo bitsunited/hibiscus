@@ -14,11 +14,14 @@
 package de.willuhn.jameica.hbci.gui.views;
 
 import de.willuhn.jameica.gui.Action;
+import de.willuhn.jameica.gui.GUI;
+import de.willuhn.jameica.gui.internal.parts.PanelButtonPrint;
 import de.willuhn.jameica.gui.parts.Button;
 import de.willuhn.jameica.gui.parts.ButtonArea;
 import de.willuhn.jameica.hbci.gui.action.EmpfaengerAdd;
-import de.willuhn.jameica.hbci.gui.action.FlaggableChange;
+import de.willuhn.jameica.hbci.gui.action.UmsatzMarkChecked;
 import de.willuhn.jameica.hbci.gui.controller.UmsatzDetailControl;
+import de.willuhn.jameica.hbci.io.print.PrintSupportUmsatzList;
 import de.willuhn.jameica.hbci.rmi.Address;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.util.ApplicationException;
@@ -43,15 +46,17 @@ public class UmsatzDetail extends AbstractUmsatzDetail
     
     Umsatz u = getControl().getUmsatz();
     
+    GUI.getView().addPanelButton(new PanelButtonPrint(new PrintSupportUmsatzList(u)));
+    
     this.checked = new Button(i18n.tr("Geprüft"),new Action()
     {
       public void handleAction(Object context) throws ApplicationException
       {
-        new FlaggableChange(Umsatz.FLAG_CHECKED,true).handleAction(context);
+        new UmsatzMarkChecked(Umsatz.FLAG_CHECKED,true).handleAction(context);
         checked.setEnabled(false); // nur einmal moeglich
       }
     },u,false,"emblem-default.png");
-    checked.setEnabled((u.getFlags() & Umsatz.FLAG_CHECKED) != Umsatz.FLAG_CHECKED);
+    checked.setEnabled(!u.hasFlag(Umsatz.FLAG_NOTBOOKED) && !u.hasFlag(Umsatz.FLAG_CHECKED));
     buttons.addButton(checked);
     
     Button ab = null;
@@ -76,7 +81,7 @@ public class UmsatzDetail extends AbstractUmsatzDetail
     edit.setEnabled((u.getFlags() & Umsatz.FLAG_NOTBOOKED) == 0);
     buttons.addButton(edit);
     
-    Button store = new Button(i18n.tr("Speichern"),new Action()
+    Button store = new Button(i18n.tr("&Speichern"),new Action()
     {
       public void handleAction(Object context) throws ApplicationException
       {

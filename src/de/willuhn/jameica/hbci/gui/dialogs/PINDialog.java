@@ -14,13 +14,14 @@ package de.willuhn.jameica.hbci.gui.dialogs;
 
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.widgets.Composite;
-import org.kapott.hbci.manager.HBCIUtils;
 
 import de.willuhn.jameica.gui.dialogs.PasswordDialog;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.rmi.Konto;
-import de.willuhn.jameica.hbci.server.hbci.HBCIFactory;
+import de.willuhn.jameica.hbci.synchronize.SynchronizeSession;
+import de.willuhn.jameica.hbci.synchronize.hbci.HBCISynchronizeBackend;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.I18N;
@@ -45,14 +46,17 @@ public class PINDialog extends PasswordDialog
 
     String s = null;
 
-    Konto konto = HBCIFactory.getInstance().getCurrentKonto();
+    BeanService service = Application.getBootLoader().getBootable(BeanService.class);
+    SynchronizeSession session = service.get(HBCISynchronizeBackend.class).getCurrentSession();
+    Konto konto = session != null ? session.getKonto() : null;
+    
     if (konto != null)
     {
       try
       {
         s = konto.getBezeichnung();
         s += " [" + i18n.tr("Nr.") + " " + konto.getKontonummer();
-        String name = HBCIUtils.getNameForBLZ(konto.getBLZ());
+        String name = HBCIProperties.getNameForBank(konto.getBLZ());
         if (name != null && name.length() > 0)
           s += " - " + name;
         s += "]";

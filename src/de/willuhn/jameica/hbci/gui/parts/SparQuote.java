@@ -44,6 +44,7 @@ import de.willuhn.jameica.gui.util.TabGroup;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.gui.ColorUtil;
+import de.willuhn.jameica.hbci.gui.action.SparQuoteExport;
 import de.willuhn.jameica.hbci.gui.chart.LineChart;
 import de.willuhn.jameica.hbci.gui.chart.LineChartData;
 import de.willuhn.jameica.hbci.gui.filter.KontoFilter;
@@ -54,6 +55,7 @@ import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.jameica.hbci.server.UmsatzUtil;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.jameica.system.Settings;
 import de.willuhn.jameica.util.DateUtil;
 import de.willuhn.logging.Level;
 import de.willuhn.logging.Logger;
@@ -66,21 +68,22 @@ import de.willuhn.util.I18N;
 public class SparQuote implements Part
 {
   private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
+  private final static Settings settings = new Settings(SparQuote.class);
 
   private static DateFormat DATEFORMAT = new SimpleDateFormat("MM.yyyy");
-  
+
   private TablePart table              = null;
   private LineChart chart              = null;
   private KontoInput kontoauswahl      = null;
   private UmsatzDaysInput startAuswahl = null;
   private SpinnerInput tagAuswahl      = null;
   private SpinnerInput monatAuswahl    = null;
-  
+
   private List<UmsatzEntry> data       = new ArrayList<UmsatzEntry>();
   private List<UmsatzEntry> trend      = new ArrayList<UmsatzEntry>();
-  
+
   private Listener listener            = null; // BUGZILLA 575
-  
+
   private Date start                   = null;
   private int stichtag                 = 1;
   private int monate                   = 1;
@@ -96,6 +99,9 @@ public class SparQuote implements Part
       {
         try
         {
+          if (event != null && (event.type==SWT.FocusIn || event.type==SWT.FocusOut))
+            return;
+          
           load();
           redraw();
           if (chart != null)
@@ -106,12 +112,12 @@ public class SparQuote implements Part
           // ignorieren wir. Durch den Delayed-Listener kann dieses
           // Event auch aufgerufen werden, wenn der Dialog schon verlassen wurde
           // Daher nur zu Debugging-Zwecken.
-          Logger.write(Level.DEBUG,"unable to redraw data, it seems, the view was allready closed",e);
+          Logger.write(Level.DEBUG,"unable to redraw data, it seems, the view was already closed",e);
         }
       }
     };
   }
-  
+
   /**
    * Berechnet Start-Datum und Stichtag.
    * @throws RemoteException
@@ -121,7 +127,7 @@ public class SparQuote implements Part
     // Stichtag
     Integer value = (Integer) getTagAuswahl().getValue();
     stichtag = value == null ? 1 : value.intValue();
-    
+
     //Monate
     value = (Integer) getMonatAuswahl().getValue();
     monate = value == null ? 1 : value.intValue();
@@ -138,7 +144,7 @@ public class SparQuote implements Part
       start = DateUtil.startOfDay(new Date(System.currentTimeMillis() - d));
     }
   }
-  
+
   /**
    * Liefert die Konto-Auwahl.
    * @return die Konto-Auswahl.
@@ -151,11 +157,12 @@ public class SparQuote implements Part
 
     this.kontoauswahl = new KontoInput(null,KontoFilter.ALL);
     this.kontoauswahl.setPleaseChoose(i18n.tr("<Alle Konten>"));
+    this.kontoauswahl.setSupportGroups(true);
     this.kontoauswahl.setRememberSelection("auswertungen.spartquote");
     this.kontoauswahl.addListener(new DelayedListener(500,this.listener));
     return this.kontoauswahl;
   }
-  
+
   /**
    * Liefert ein Eingabefeld fuer den Stichtag.
    * @return Eingabe-Feld.
@@ -170,6 +177,15 @@ public class SparQuote implements Part
     this.tagAuswahl = new SpinnerInput(1,31,this.stichtag);
     this.tagAuswahl.setComment(i18n.tr(". Tag des Monats"));
     this.tagAuswahl.setName(i18n.tr("Stichtag"));
+    this.tagAuswahl.setValue(settings.getInt("stichtag",1));
+    this.tagAuswahl.addListener(new Listener() {
+      
+      @Override
+      public void handleEvent(Event event)
+      {
+        settings.setAttribute("stichtag",(Integer) tagAuswahl.getValue());
+      }
+    });
     this.tagAuswahl.addListener(new DelayedListener(500,this.listener));
     return this.tagAuswahl;
   }
@@ -188,6 +204,15 @@ public class SparQuote implements Part
     this.monatAuswahl = new SpinnerInput(1,12,this.monate);
     this.monatAuswahl.setComment(i18n.tr("Anzahl der Monate pro Periode"));
     this.monatAuswahl.setName(i18n.tr("Monate"));
+    this.monatAuswahl.setValue(settings.getInt("monate",1));
+    this.monatAuswahl.addListener(new Listener() {
+      
+      @Override
+      public void handleEvent(Event event)
+      {
+        settings.setAttribute("monate",(Integer) monatAuswahl.getValue());
+      }
+    });
     this.monatAuswahl.addListener(new DelayedListener(500,this.listener));
     return this.monatAuswahl;
   }
@@ -205,7 +230,7 @@ public class SparQuote implements Part
     this.startAuswahl.addListener(new DelayedListener(500,this.listener));
     return this.startAuswahl;
   }
-  
+
   /**
    * @see de.willuhn.jameica.gui.Part#paint(org.eclipse.swt.widgets.Composite)
    */
@@ -217,7 +242,7 @@ public class SparQuote implements Part
       final TabFolder folder = new TabFolder(parent, SWT.NONE);
       folder.setLayoutData(new GridData(GridData.FILL_HORIZONTAL));
       TabGroup tab = new TabGroup(folder,i18n.tr("Anzeige einschränken"));
-      
+
       tab.addInput(getKontoAuswahl());
       tab.addInput(getStartAuswahl());
       tab.addInput(getTagAuswahl());
@@ -225,15 +250,34 @@ public class SparQuote implements Part
     }
 
     ButtonArea topButtons = new ButtonArea();
+    topButtons.addButton(i18n.tr("Exportieren..."),new SparQuoteExport()
+    {
+      /**
+       * @see de.willuhn.jameica.hbci.gui.action.SparQuoteExport#handleAction(java.lang.Object)
+       */
+      @Override
+      public void handleAction(Object context) throws ApplicationException
+      {
+        try
+        {
+          super.handleAction(table.getItems()); // Wir exportieren pauschal alles
+        }
+        catch (RemoteException re)
+        {
+          Logger.error("unable to export data",re);
+          throw new ApplicationException(i18n.tr("Export fehlgeschlagen: {}",re.getMessage()));
+        }
+      }
+    },null,false,"document-save.png");
     topButtons.addButton(i18n.tr("Aktualisieren"), new Action() {
-      
+
       public void handleAction(Object context) throws ApplicationException
       {
         listener.handleEvent(null);
       }
     },null,true,"view-refresh.png");
     topButtons.paint(parent);
-    
+
     // Wir initialisieren die Tabelle erstmal ohne Werte.
     this.table = new TablePart(data,null);
     this.table.addColumn(i18n.tr("Monat"), "monat", new Formatter() {
@@ -258,7 +302,7 @@ public class SparQuote implements Part
         item.setForeground(ColorUtil.getForeground(ue.einnahmen - ue.ausgaben));
       }
     });
-    
+
     TabFolder folder = new TabFolder(parent, SWT.NONE);
     folder.setLayoutData(new GridData(GridData.FILL_BOTH));
 
@@ -290,7 +334,7 @@ public class SparQuote implements Part
   {
     if (this.data == null)
       return;
-    
+
     this.table.removeAll();
 
     for (UmsatzEntry e:this.data)
@@ -309,9 +353,11 @@ public class SparQuote implements Part
     calculateRange();
 
     DBIterator umsaetze = UmsatzUtil.getUmsaetze();
-    Konto konto = (Konto) getKontoAuswahl().getValue();
-    if (konto != null)
-      umsaetze.addFilter("konto_id = " + konto.getID());
+    Object o = getKontoAuswahl().getValue();
+    if (o != null && (o instanceof Konto))
+      umsaetze.addFilter("konto_id = " + ((Konto) o).getID());
+    else if (o != null && (o instanceof String))
+      umsaetze.addFilter("konto_id in (select id from konto where kategorie = ?)", (String) o);
 
     if (start != null)
       umsaetze.addFilter("datum >= ?", new Object[] {new java.sql.Date(start.getTime())});
@@ -335,13 +381,16 @@ public class SparQuote implements Part
         // Wir haben das Limit erreicht. Also beginnen wir einen neuen Block
         currentEntry = new UmsatzEntry();
         currentEntry.monat = date;
+        if (currentEntry.monat != null)
+          currentEntry.text = DATEFORMAT.format(currentEntry.monat);
+        
         this.data.add(currentEntry);
 
         // BUGZILLA 337
         // Neues Limit definieren
         cal.setTime(date);
         cal.add(Calendar.MONTH,this.monate);
-        
+
         // BUGZILLA 691
         if (stichtag > cal.getActualMaximum(Calendar.DAY_OF_MONTH))
           cal.set(Calendar.DAY_OF_MONTH,cal.getActualMaximum(Calendar.DAY_OF_MONTH));
@@ -350,23 +399,23 @@ public class SparQuote implements Part
 
         currentLimit = DateUtil.startOfDay(cal.getTime());
       }
-      
+
       double betrag = u.getBetrag();
       if (betrag > 0)
         currentEntry.einnahmen += betrag;
       else
         currentEntry.ausgaben -= betrag;
     }
-    
+
     // Trend ermitteln
     // http://de.wikibooks.org/wiki/Mathematik:_Statistik:_Glättungsverfahren
     // http://de.wikibooks.org/wiki/Mathematik:_Statistik:_Trend_und_Saisonkomponente
-    
+
     this.trend.clear();
     for (int i=0;i<this.data.size();++i)
       this.trend.add(getDurchschnitt(this.data,i));
   }
-  
+
   /**
    * Liefert einen synthetischen Umsatz-Entry basierend auf den
    * Daten der 4 links und rechts daneben liegenden Monaten als Durchschnitt.
@@ -387,7 +436,11 @@ public class SparQuote implements Part
         ue.ausgaben  += current.ausgaben;
         ue.einnahmen += current.einnahmen;
         if (i == 0) // Als Monat verwenden wir genau den aus der Mitte
+        {
           ue.monat = current.monat;
+          if (ue.monat != null)
+            ue.text = DATEFORMAT.format(ue.monat);
+        }
       }
       catch (IndexOutOfBoundsException e)
       {
@@ -396,7 +449,7 @@ public class SparQuote implements Part
     }
     ue.einnahmen /= found;
     ue.ausgaben /= found;
-    
+
     return ue;
   }
 
@@ -408,6 +461,7 @@ public class SparQuote implements Part
     private double einnahmen = 0d;
     private double ausgaben  = 0d;
     private Date monat       = null;
+    private String text      = null;
 
     /**
      * Liefert die Einnahmen.
@@ -417,7 +471,7 @@ public class SparQuote implements Part
     {
       return this.einnahmen;
     }
-    
+
     /**
      * Liefert die Ausgaben.
      * @return die Ausgaben.
@@ -426,7 +480,7 @@ public class SparQuote implements Part
     {
       return this.ausgaben;
     }
-    
+
     /**
      * Liefert den Monat.
      * @return der Monat.
@@ -437,6 +491,15 @@ public class SparQuote implements Part
     }
     
     /**
+     * Liefert den Text.
+     * @return der Text.
+     */
+    public String getText()
+    {
+      return this.text;
+    }
+
+    /**
      * Liefert die Sparquote.
      * @return die Sparquote.
      */
@@ -445,8 +508,8 @@ public class SparQuote implements Part
       return einnahmen - ausgaben;
     }
   }
-  
-  
+
+
   /**
    * Implementierung eines Datensatzes fuer die Darstellung der Sparquote.
    */
@@ -465,8 +528,12 @@ public class SparQuote implements Part
      */
     public String getLabel() throws RemoteException
     {
-      Konto konto = (Konto) getKontoAuswahl().getValue();
-      return konto == null ? i18n.tr("Alle Konten") : konto.getBezeichnung();
+      Object o = getKontoAuswahl().getValue();
+      if (o != null && (o instanceof String))
+        return (String) o;
+      else if (o != null && (o instanceof Konto))
+        return ((Konto) o).getBezeichnung();
+      return i18n.tr("Alle Konten");
     }
 
     /**
@@ -500,6 +567,15 @@ public class SparQuote implements Part
     {
       return null;
     }
+
+    /**
+     * @see de.willuhn.jameica.hbci.gui.chart.LineChartData#isFilled()
+     */
+    @Override
+    public boolean isFilled() throws RemoteException
+    {
+      return true;
+    }
   }
 
   /**
@@ -522,7 +598,7 @@ public class SparQuote implements Part
     {
       return i18n.tr("Trend");
     }
-    
+
     /**
      * @see de.willuhn.jameica.hbci.gui.chart.LineChartData#getCurve()
      */
@@ -531,56 +607,4 @@ public class SparQuote implements Part
       return true;
     }
   }
-
 }
-
-
-/*********************************************************************
- * $Log: SparQuote.java,v $
- * Revision 1.38  2012/05/06 14:26:04  willuhn
- * @N BUGZILLA 1233
- *
- * Revision 1.37  2012/04/23 21:03:41  willuhn
- * @N BUGZILLA 1227
- *
- * Revision 1.36  2012/04/05 21:29:06  willuhn
- * @B BUGZILLA 1219
- *
- * Revision 1.35  2011/12/18 23:20:20  willuhn
- * @N GUI-Politur
- *
- * Revision 1.34  2011/10/27 11:03:40  willuhn
- * @C Auswahl des Stichtages in Spar-Quote als Spinner-Input
- *
- * Revision 1.33  2011-07-27 09:25:50  willuhn
- * @B Zeitraum und Stichtag war initial nicht gesetzt und wurde erst nach Klick auf "Aktualisieren" korrekt berechnet
- *
- * Revision 1.32  2011-06-28 15:28:37  willuhn
- * @N Zeitraum jetzt auch ueber neuen Schiebe-Regler
- *
- * Revision 1.31  2011-05-19 08:41:53  willuhn
- * @N BUGZILLA 1038 - generische Loesung
- *
- * Revision 1.30  2011-05-03 10:13:15  willuhn
- * @R Hintergrund-Farbe nicht mehr explizit setzen. Erzeugt auf Windows und insb. Mac teilweise unschoene Effekte. Besonders innerhalb von Label-Groups, die auf Windows/Mac andere Hintergrund-Farben verwenden als der Default-Hintergrund
- *
- * Revision 1.29  2011-04-08 15:19:14  willuhn
- * @R Alle Zurueck-Buttons entfernt - es gibt jetzt einen globalen Zurueck-Button oben rechts
- * @C Code-Cleanup
- *
- * Revision 1.28  2011-01-20 17:13:21  willuhn
- * @C HBCIProperties#startOfDay und HBCIProperties#endOfDay nach Jameica in DateUtil verschoben
- *
- * Revision 1.27  2010-11-29 22:44:30  willuhn
- * @B getCurve() wurde falsch rum interpretiert ;)
- *
- * Revision 1.26  2010-11-24 16:27:17  willuhn
- * @R Eclipse BIRT komplett rausgeworden. Diese unsaegliche Monster ;)
- * @N Stattdessen verwenden wir jetzt SWTChart (http://www.swtchart.org). Das ist statt den 6MB von BIRT sagenhafte 250k gross
- *
- * Revision 1.25  2010-08-12 17:12:32  willuhn
- * @N Saldo-Chart komplett ueberarbeitet (Daten wurden vorher mehrmals geladen, Summen-Funktion, Anzeige mehrerer Konten, Durchschnitt ueber mehrere Konten, Bugfixing, echte "Homogenisierung" der Salden via SaldoFinder)
- *
- * Revision 1.24  2010-08-11 14:53:19  willuhn
- * @B Kleiner Darstellungsfehler (unnoetig breiter rechter Rand wegen zweispaltigem Part)
- **********************************************************************/

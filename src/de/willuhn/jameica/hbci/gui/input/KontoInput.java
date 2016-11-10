@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/input/KontoInput.java,v $
- * $Revision: 1.10 $
- * $Date: 2011/08/30 12:09:40 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn software & services
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -18,20 +12,27 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import org.apache.commons.lang.StringUtils;
 import org.eclipse.swt.events.DisposeEvent;
 import org.eclipse.swt.events.DisposeListener;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
-import org.kapott.hbci.manager.HBCIUtils;
 
+import de.willuhn.datasource.BeanUtil;
+import de.willuhn.datasource.GenericObject;
 import de.willuhn.datasource.rmi.DBIterator;
 import de.willuhn.jameica.gui.GUI;
 import de.willuhn.jameica.gui.input.SelectInput;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.gui.filter.KontoFilter;
+import de.willuhn.jameica.hbci.messaging.SaldoMessage;
 import de.willuhn.jameica.hbci.rmi.Konto;
+import de.willuhn.jameica.hbci.server.KontoUtil;
+import de.willuhn.jameica.messaging.Message;
+import de.willuhn.jameica.messaging.MessageConsumer;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.I18N;
@@ -43,10 +44,18 @@ public class KontoInput extends SelectInput
 {
   private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
   private final static de.willuhn.jameica.system.Settings settings = new de.willuhn.jameica.system.Settings(KontoInput.class);
+
+  private Konto konto = null;
+  private static List<String> groups = null;
+
   private KontoListener listener = null;
   private String token = null;
+  private boolean store = true;
   private Control control = null;
-  
+  private boolean supportGroups = false;
+
+  private MessageConsumer mc = new SaldoMessageConsumer();
+
   /**
    * ct.
    * @param konto ausgewaehltes Konto.
@@ -56,23 +65,81 @@ public class KontoInput extends SelectInput
   public KontoInput(Konto konto, KontoFilter filter) throws RemoteException
   {
     super(init(filter),konto);
+    this.konto = konto;
     setName(i18n.tr("Konto"));
+
+    // Wenn nur ein Konto hinterlegt ist das gleich selektieren
+    // Und nur dann, wenn wir keine Gruppen haben - die landen naemlich auch in this.list
+    if (groups == null || groups.size() == 0)
+    {
+      List konten = this.getList();
+      if (konten != null && konten.size() == 1)
+        this.setPreselected(konten.get(0));
+    }
+    
     setPleaseChoose(i18n.tr("Bitte wählen..."));
     this.setComment("");
-    
-    if (konto == null)
-    {
-      konto = Settings.getDefaultKonto();
-      if (konto != null)
-        setPreselected(konto);
-    }
+
     this.listener = new KontoListener();
     this.addListener(this.listener);
 
     // einmal ausloesen
     this.listener.handleEvent(null);
   }
-  
+
+  /**
+   * Legt fest, ob die Kontoauswahl das Zurueckliefern von Gruppen unterstuetzen soll.
+   * @param b true, wenn es unterstuetzt werden soll.
+   * In dem Fall liefert das Input einen String mit der ausgewaehlten Kategorie.
+   * Andernfalls wird in diesem Fall NULL zurueckgeliefert. Per Default ist dieses
+   * Feature (aus Gruenden der Abwaertskompatibilitaet) deaktiviert - muss also explizit
+   * an den Stellen aktiviert werden, wo es verwendet wird.
+   */
+  public void setSupportGroups(boolean b)
+  {
+    this.supportGroups = b;
+  }
+
+  /**
+   * Die Kontoauswahl kann sich das zuletzt ausgewaehlte Konto merken.
+   * Damit dann aber nicht auf allen Dialogen das gleiche Konto vorausgewaehlt ist,
+   * kann man hier einen individuellen Freitext-Token uebergeben, der als Key fuer
+   * das Speichern des zuletzt ausgewaehlten Kontos verwendet wird. Ueberall dort,
+   * wo also der gleiche Token verwendet wird, wird auch das gleiche Konto
+   * vorausgewaehlt. Der Konto kann z.Bsp. "auswertungen" heissen. Wenn dieser
+   * auf allen Dialogen der Auswertungen verwendet wird, wird dort dann auch ueberall
+   * das gleiche Konto vorausgewaehlt sein.
+   * @param s der Restore-Token.
+   * @param store wenn die hier getroffene Auswahl auch gespeichert werden soll.
+   */
+  public void setRememberSelection(String s, boolean store)
+  {
+    if (s == null || s.length() == 0)
+      return;
+
+    this.token = s;
+    this.store = store;
+
+    String id = settings.getString(this.token,null);
+    if (this.konto == null && id != null && id.length() > 0) // BUGZILLA 1446 - nur uebernehmen, wenn wir noch keins vorausgewaehlt haben
+    {
+      try
+      {
+        Konto k = (Konto) Settings.getDBService().createObject(Konto.class,id);
+        this.setPreselected(k);
+      }
+      catch (Exception e)
+      {
+        // wir koennen leider nicht checken, ob "id" =~ /[0-9]{1,9}/ ist, weil der Gruppen-Name ja auch nur aus Zahlen bestehen kann
+        // daher halt direkt im catch der ObjectNotFoundException
+        if (this.supportGroups)
+          this.setPreselected(id); // Koennte eine Kategorie sein
+        else
+          settings.setAttribute(this.token,(String) null); // Konto konnte nicht geladen werden. Vorauswahl loeschen
+      }
+    }
+  }
+
   /**
    * Die Kontoauswahl kann sich das zuletzt ausgewaehlte Konto merken.
    * Damit dann aber nicht auf allen Dialogen das gleiche Konto vorausgewaehlt ist,
@@ -86,35 +153,9 @@ public class KontoInput extends SelectInput
    */
   public void setRememberSelection(String s)
   {
-    if (s == null || s.length() == 0)
-      return;
-    
-    this.token = s;
-
-    String id = settings.getString(this.token,null);
-    if (id != null && id.length() > 0)
-    {
-      try
-      {
-        Konto k = (Konto) Settings.getDBService().createObject(Konto.class,id);
-        this.setPreselected(k);
-      }
-      catch (Exception e)
-      {
-        // Konto konnte nicht geladen werden. Vorauswahl loeschen
-        settings.setAttribute(this.token,(String) null);
-      }
-    }
-    
-    // Listener hinzufuegen
-    this.addListener(new Listener() {
-      public void handleEvent(Event event)
-      {
-        storeSelection();
-      }
-    });
+    this.setRememberSelection(s,true);
   }
-  
+
   /**
    * @see de.willuhn.jameica.gui.input.SelectInput#getControl()
    */
@@ -122,29 +163,41 @@ public class KontoInput extends SelectInput
   {
     if (this.control != null)
       return this.control;
-    
+
     this.control = super.getControl();
-    if (this.token != null)
-    {
-      this.control.addDisposeListener(new DisposeListener() {
-        public void widgetDisposed(DisposeEvent e)
-        {
-          storeSelection();
-        }
-      });
-    }
+
+    Application.getMessagingFactory().registerMessageConsumer(this.mc);
+    this.control.addDisposeListener(new DisposeListener() {
+      public void widgetDisposed(DisposeEvent e)
+      {
+        Application.getMessagingFactory().unRegisterMessageConsumer(mc);
+        storeSelection();
+      }
+    });
     return this.control;
   }
-  
+
   /**
    * Speichert die aktuelle Auswahl.
    */
   private void storeSelection()
   {
+    if (!this.store || this.token == null)
+      return;
+
     try
     {
-      Konto k = (Konto) getValue();
-      settings.setAttribute(token,(String) (k != null ? k.getID() : null));
+      Object o = getValue();
+      String value = null;
+
+      if (o != null)
+      {
+        if (o instanceof Konto)
+          value = ((Konto)o).getID();
+        else
+          value = o.toString();
+      }
+      settings.setAttribute(token,value);
     }
     catch (Exception e)
     {
@@ -159,18 +212,54 @@ public class KontoInput extends SelectInput
    * @return Liste der Konten.
    * @throws RemoteException
    */
-  private static List<Konto> init(KontoFilter filter) throws RemoteException
+  private static List init(KontoFilter filter) throws RemoteException
   {
+    groups = KontoUtil.getGroups(); // Gruppen neu laden
+    boolean haveGroups = groups.size() > 0;
+
     DBIterator it = Settings.getDBService().createList(Konto.class);
-    it.setOrder("ORDER BY blz, kontonummer");
-    List<Konto> l = new ArrayList<Konto>();
+    it.setOrder("ORDER BY LOWER(kategorie), blz, kontonummer, bezeichnung");
+    List l = new ArrayList();
+
+    String current = null;
+
     while (it.hasNext())
     {
       Konto k = (Konto) it.next();
+
       if (filter == null || filter.accept(k))
+      {
+        if (haveGroups)
+        {
+          String kat = StringUtils.trimToNull(k.getKategorie());
+          if (kat != null) // haben wir eine Kategorie?
+          {
+            if (current == null || !kat.equals(current)) // Neue Kategorie?
+            {
+              l.add(kat);
+              current = kat;
+            }
+          }
+        }
         l.add(k);
+      }
     }
     return l;
+  }
+
+  /**
+   * @see de.willuhn.jameica.gui.input.SelectInput#getValue()
+   */
+  public Object getValue()
+  {
+    Object o = super.getValue();
+
+    if ((o instanceof String) && !this.supportGroups) // Kategorie
+    {
+      GUI.getView().setErrorText(i18n.tr("Die Auswahl einer Konto-Gruppen ist hier nicht möglich"));
+      return null;
+    }
+    return o;
   }
 
   /**
@@ -180,31 +269,27 @@ public class KontoInput extends SelectInput
   {
     if (bean == null)
       return null;
-    
+
     if (!(bean instanceof Konto))
       return bean.toString();
-    
+
     try
     {
       Konto k = (Konto) bean;
-      
-      Konto kd = Settings.getDefaultKonto();
-      boolean isDefault = (kd != null && kd.equals(k));
 
-
-      boolean disabled = (k.getFlags() & Konto.FLAG_DISABLED) == Konto.FLAG_DISABLED;
+      boolean disabled = k.hasFlag(Konto.FLAG_DISABLED);
 
       StringBuffer sb = new StringBuffer();
-      if (isDefault)
-        sb.append("> ");
+      if (groups.size() > 0)
+        sb.append("   "); // Wir haben Gruppen - also einruecken
       if (disabled)
         sb.append("[");
-      
+
       sb.append(i18n.tr("Kto. {0}",k.getKontonummer()));
-      
+
       String blz = k.getBLZ();
       sb.append(" [");
-      String bankName = HBCIUtils.getNameForBLZ(blz);
+      String bankName = HBCIProperties.getNameForBank(blz);
       if (bankName != null && bankName.length() > 0)
       {
         sb.append(bankName);
@@ -223,13 +308,13 @@ public class KontoInput extends SelectInput
         sb.append(" - ");
         sb.append(bez);
       }
-      
+
       if (k.getSaldoDatum() != null)
       {
         sb.append(", ");
         sb.append(i18n.tr("Saldo: {0} {1}", new String[]{HBCI.DECIMALFORMAT.format(k.getSaldo()),k.getWaehrung()}));
       }
-      
+
       if (disabled)
         sb.append("]");
       return sb.toString();
@@ -276,40 +361,86 @@ public class KontoInput extends SelectInput
     }
   }
 
+  /**
+   * Wird ueber Saldo-Aenderungen benachrichtigt.
+   */
+  private class SaldoMessageConsumer implements MessageConsumer
+  {
+    /**
+     * @see de.willuhn.jameica.messaging.MessageConsumer#getExpectedMessageTypes()
+     */
+    public Class[] getExpectedMessageTypes()
+    {
+      return new Class[]{SaldoMessage.class};
+    }
+
+    /**
+     * @see de.willuhn.jameica.messaging.MessageConsumer#handleMessage(de.willuhn.jameica.messaging.Message)
+     */
+    public void handleMessage(Message message) throws Exception
+    {
+      SaldoMessage msg = (SaldoMessage) message;
+      GenericObject o = msg.getObject();
+      if (!(o instanceof Konto))
+        return;
+
+      final Konto konto = (Konto) o;
+
+      GUI.getDisplay().syncExec(new Runnable() {
+        public void run()
+        {
+          // Checken, ob wir das Konto in der Liste haben. Wenn ja, aktualisieren
+          // wir dessen Saldo
+          List list = null;
+
+          try
+          {
+            list = getList();
+
+            if (list == null)
+              return;
+
+            for (int i=0;i<list.size();++i)
+            {
+              Object item = list.get(i);
+              if (!(item instanceof Konto))
+                continue; // Ist eine Konto-Gruppe
+
+              Konto k = (Konto) item;
+              if (BeanUtil.equals(konto,k))
+              {
+                list.set(i,konto);
+                break;
+              }
+            }
+
+            // Liste neu zeichnen lassen. Das aktualisiert die Kommentare
+            // und den Text in der Kombo-Box
+            setValue(getValue());
+            setList(list);
+            if (listener != null)
+              listener.handleEvent(null);
+          }
+          catch (NoSuchMethodError e)
+          {
+            // TODO "getList" hab ich erst am 15.04. eingebaut. Das catch kann hier also mal irgendwann weg
+            Logger.warn(e.getMessage() + " - update your jameica installation");
+          }
+          catch (Exception e)
+          {
+            Logger.error("unable to refresh konto",e);
+          }
+        }
+      });
+    }
+
+    /**
+     * @see de.willuhn.jameica.messaging.MessageConsumer#autoRegister()
+     */
+    public boolean autoRegister()
+    {
+      return false;
+    }
+  }
+
 }
-
-
-/**********************************************************************
- * $Log: KontoInput.java,v $
- * Revision 1.10  2011/08/30 12:09:40  willuhn
- * @N BUGZILLA 1125
- *
- * Revision 1.9  2011-05-20 16:22:31  willuhn
- * @N Termin-Eingabefeld in eigene Klasse ausgelagert (verhindert duplizierten Code) - bessere Kommentare
- *
- * Revision 1.8  2011-05-19 08:41:53  willuhn
- * @N BUGZILLA 1038 - generische Loesung
- *
- * Revision 1.7  2010-08-12 17:12:32  willuhn
- * @N Saldo-Chart komplett ueberarbeitet (Daten wurden vorher mehrmals geladen, Summen-Funktion, Anzeige mehrerer Konten, Durchschnitt ueber mehrere Konten, Bugfixing, echte "Homogenisierung" der Salden via SaldoFinder)
- *
- * Revision 1.6  2009-10-20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.5  2009/10/07 23:08:56  willuhn
- * @N BUGZILLA 745: Deaktivierte Konten in Auswertungen zwar noch anzeigen, jedoch mit "[]" umschlossen. Bei der Erstellung von neuen Auftraegen bleiben sie jedoch ausgeblendet. Bei der Gelegenheit wird das Default-Konto jetzt mit ">" markiert
- *
- * Revision 1.4  2009/09/15 00:23:35  willuhn
- * @N BUGZILLA 745
- *
- * Revision 1.3  2009/01/12 00:46:50  willuhn
- * @N Vereinheitlichtes KontoInput in den Auswertungen
- *
- * Revision 1.2  2009/01/04 16:38:55  willuhn
- * @N BUGZILLA 523 - ein Konto kann jetzt als Default markiert werden. Das wird bei Auftraegen vorausgewaehlt und ist fett markiert
- *
- * Revision 1.1  2009/01/04 16:18:22  willuhn
- * @N BUGZILLA 404 - Kontoauswahl via SelectBox
- *
- **********************************************************************/

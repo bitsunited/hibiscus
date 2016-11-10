@@ -14,6 +14,8 @@ package de.willuhn.jameica.hbci.server;
 
 import java.rmi.RemoteException;
 
+import org.apache.commons.lang.StringUtils;
+
 import de.willuhn.datasource.rmi.DBObject;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
@@ -21,6 +23,7 @@ import de.willuhn.jameica.hbci.rmi.Address;
 import de.willuhn.jameica.hbci.rmi.HibiscusTransfer;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
+import de.willuhn.jameica.hbci.server.VerwendungszweckUtil.Tag;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
@@ -52,6 +55,10 @@ public abstract class AbstractHibiscusTransferImpl extends AbstractHibiscusDBObj
 
     if ("mergedzweck".equals(arg0))
       return VerwendungszweckUtil.toString(this);
+
+    Tag tag = Tag.byName(arg0);
+    if (tag != null)
+      return VerwendungszweckUtil.getTag(this,tag);
 
     return super.getAttribute(arg0);
   }
@@ -99,7 +106,7 @@ public abstract class AbstractHibiscusTransferImpl extends AbstractHibiscusDBObj
       if (betrag == 0.0 || Double.isNaN(betrag))
         throw new ApplicationException(i18n.tr("Bitte geben Sie einen gültigen Betrag ein."));
 
-      if (getGegenkontoName() == null || getGegenkontoName().length() == 0)
+      if (StringUtils.trimToNull(getGegenkontoName()) == null)
 				throw new ApplicationException(i18n.tr("Bitte geben Sie den Namen des Kontoinhabers des Gegenkontos ein"));
 
       int blzLen = getGegenkontoBLZ().length();
@@ -228,7 +235,7 @@ public abstract class AbstractHibiscusTransferImpl extends AbstractHibiscusDBObj
    * @see de.willuhn.jameica.hbci.rmi.HibiscusTransfer#setGegenkontoNummer(java.lang.String)
    */
   public void setGegenkontoNummer(String konto) throws RemoteException {
-		setAttribute("empfaenger_konto",konto);
+		setAttribute("empfaenger_konto",konto != null ? konto.toUpperCase() : null);
   }
 
   /**

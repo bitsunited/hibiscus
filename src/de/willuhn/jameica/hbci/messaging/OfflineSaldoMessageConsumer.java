@@ -14,10 +14,14 @@
 package de.willuhn.jameica.hbci.messaging;
 
 import de.willuhn.datasource.GenericObject;
+import de.willuhn.jameica.hbci.SynchronizeOptions;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
+import de.willuhn.jameica.hbci.synchronize.SynchronizeEngine;
+import de.willuhn.jameica.hbci.synchronize.jobs.SynchronizeJobKontoauszug;
 import de.willuhn.jameica.messaging.Message;
 import de.willuhn.jameica.messaging.MessageConsumer;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
 
 /**
@@ -31,7 +35,9 @@ public class OfflineSaldoMessageConsumer implements MessageConsumer
    */
   public boolean autoRegister()
   {
-    return true;
+    // Wird manuell per Manifest registriert, um die Reihenfolge festzulegen. Muss VOR CheckOfflineUmsatzMessageConsumer passieren,
+    // damit sichergestellt ist, dass der Saldo des Kontos aktualisiert wurde, wenn die Auto-Buchung erzeugt wird
+    return false;
   }
 
   /**
@@ -67,8 +73,30 @@ public class OfflineSaldoMessageConsumer implements MessageConsumer
       return;
     
     // Offline-Konto?
-    if ((k.getFlags() & Konto.FLAG_OFFLINE) != Konto.FLAG_OFFLINE)
+    if (!k.hasFlag(Konto.FLAG_OFFLINE))
       return;
+
+    // Explizit abgeschaltet. Sie mail von Sebastian vom 09.12.2013
+    SynchronizeOptions options = new SynchronizeOptions(k);
+    if (!options.getAutoSaldo())
+      return;
+    
+    // Wenn fuer das Offline-Konto das Synchronisieren des Saldos
+    // aktiv ist, halten wir uns raus
+    // Siehe Mail von Sebastian vom 08.05.2013
+    
+    // Update 2013-07-23: Das macht aber nur Sinn, wenn Scripting fuer
+    // das Konto verfuegbar ist.
+    BeanService service = Application.getBootLoader().getBootable(BeanService.class);
+    SynchronizeEngine engine = service.get(SynchronizeEngine.class);
+    
+    // Also wir haben prinzipiell Scripting fuer das Konto. Also checken,
+    // ob das Abrufen des Saldos dort schon aktiviert ist
+    if (engine.supports(SynchronizeJobKontoauszug.class,k))
+    {
+      if (options.getSyncSaldo()) // Das Script holt den Saldo. Also machen wir nichts
+        return;
+    }
 
     // Betrag der Buchung
     double betrag = u.getBetrag();

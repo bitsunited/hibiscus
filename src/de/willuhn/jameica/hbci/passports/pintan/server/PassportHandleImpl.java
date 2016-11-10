@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/passports/pintan/server/PassportHandleImpl.java,v $
- * $Revision: 1.14 $
- * $Date: 2011/05/27 12:39:59 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -26,8 +20,10 @@ import de.willuhn.datasource.GenericIterator;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCICallbackSWT;
 import de.willuhn.jameica.hbci.gui.DialogFactory;
+import de.willuhn.jameica.hbci.gui.action.PassportProcessCode3072;
 import de.willuhn.jameica.hbci.passport.PassportHandle;
 import de.willuhn.jameica.hbci.passports.pintan.ChipTANDialog;
+import de.willuhn.jameica.hbci.passports.pintan.PhotoTANDialog;
 import de.willuhn.jameica.hbci.passports.pintan.PinTanConfigFactory;
 import de.willuhn.jameica.hbci.passports.pintan.PtSecMech;
 import de.willuhn.jameica.hbci.passports.pintan.PtSecMechDialog;
@@ -35,8 +31,11 @@ import de.willuhn.jameica.hbci.passports.pintan.SelectConfigDialog;
 import de.willuhn.jameica.hbci.passports.pintan.TANDialog;
 import de.willuhn.jameica.hbci.passports.pintan.TanMediaDialog;
 import de.willuhn.jameica.hbci.passports.pintan.rmi.PinTanConfig;
+import de.willuhn.jameica.hbci.rmi.HibiscusDBObject;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.server.Converter;
+import de.willuhn.jameica.hbci.server.hbci.HBCIContext;
+import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.plugin.AbstractPlugin;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.OperationCanceledException;
@@ -110,7 +109,7 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
         }
         else
         {
-          SelectConfigDialog d = new SelectConfigDialog(SelectConfigDialog.POSITION_CENTER);
+          SelectConfigDialog d = new SelectConfigDialog(SelectConfigDialog.POSITION_CENTER,list);
           try
           {
             config = (PinTanConfig) d.open();
@@ -139,14 +138,22 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
 
       hbciPassport = config.getPassport();
 
-      // Wir speichern die verwendete PIN/TAN-Config im Passport. Dann wissen wir
-      // spaeter in den HBCI-Callbacks noch, aus welcher Config der Passport
-      // erstellt wurde. Wird z.Bsp. vom Payment-Server benoetigt.
-      ((AbstractHBCIPassport)hbciPassport).setPersistentData(CONTEXT_CONFIG,config);
+      {
+        AbstractHBCIPassport ap = (AbstractHBCIPassport) hbciPassport;
+        
+        // Wir speichern die verwendete PIN/TAN-Config im Passport. Dann wissen wir
+        // spaeter in den HBCI-Callbacks noch, aus welcher Config der Passport
+        // erstellt wurde. Wird z.Bsp. vom Payment-Server benoetigt.
+        ap.setPersistentData(CONTEXT_CONFIG,config);
+        
+        String cannationalacc = config.getCustomProperty("cannationalacc");
+        if (cannationalacc != null)
+          ap.setPersistentData("cannationalacc",cannationalacc);
+      }
 
 			String hbciVersion = config.getHBCIVersion();
 			if (hbciVersion == null || hbciVersion.length() == 0)
-				hbciVersion = "plus";
+				hbciVersion = "300";
 
       Logger.info("[PIN/TAN] url         : " + config.getURL());
       Logger.info("[PIN/TAN] blz         : " + config.getBLZ());
@@ -199,20 +206,48 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
   public void close() throws RemoteException {
 		if (hbciPassport == null && handler == null)
 			return;
-		try {
-			Logger.info("closing pin/tan passport");
-			handler.close();
-		}
-		catch (Exception e) {/*useless*/}
-		hbciPassport = null;
-		handler = null;
 
-    AbstractPlugin plugin = Application.getPluginLoader().getPlugin(HBCI.class);
-    HBCICallback callback = ((HBCI)plugin).getHBCICallback();
-    if (callback != null && (callback instanceof HBCICallbackSWT))
-      ((HBCICallbackSWT)callback).setCurrentHandle(null);
+		try
+		{
+	    this.handleCode3072();
+		}
+		finally
+		{
+	    try {
+	      Logger.info("closing pin/tan passport");
+	      handler.close();
+	    }
+	    catch (Exception e) {/*useless*/}
+	    hbciPassport = null;
+	    handler = null;
+
+	    AbstractPlugin plugin = Application.getPluginLoader().getPlugin(HBCI.class);
+	    HBCICallback callback = ((HBCI)plugin).getHBCICallback();
+	    if (callback != null && (callback instanceof HBCICallbackSWT))
+	      ((HBCICallbackSWT)callback).setCurrentHandle(null);
+	    
+	    Logger.info("pin/tan passport closed");
+		}
+		
+  }
+  
+  /**
+   * Behandelt die GAD-spezifische Rueckmeldung zur Aenderung der Kundenkennung
+   */
+  private void handleCode3072()
+  {
+    if (hbciPassport == null)
+      return;
     
-    Logger.info("pin/tan passport closed");
+    try
+    {
+      new PassportProcessCode3072().handleAction(hbciPassport);
+    }
+    catch (Exception e)
+    {
+      Logger.error("error while applying new user-/customer data",e);
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Übernehmen der geänderten Zugangsdaten: {0}",e.getMessage()),StatusBarMessage.TYPE_ERROR));
+    }
   }
 
   /**
@@ -262,7 +297,15 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
         return true;
       }
 
-      // BUGZILLA 62
+      case HBCICallback.NEED_PT_PHOTOTAN:
+      {
+        TANDialog dialog = new PhotoTANDialog(config,retData.toString());
+        dialog.setContext(this.getContext(passport));
+        dialog.setText(msg);
+        retData.replace(0,retData.length(),(String)dialog.open());
+        return true;
+      }
+
       case HBCICallback.NEED_PT_TAN:
       {
         TANDialog dialog = null;
@@ -283,6 +326,7 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
           dialog = new TANDialog(config);
         }
         
+        dialog.setContext(this.getContext(passport));
         dialog.setText(msg);
         retData.replace(0,retData.length(),(String)dialog.open());
         return true;
@@ -315,18 +359,32 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
       // BUGZILLA 827
       case HBCICallback.NEED_PT_TANMEDIA:
       {
+        // Wenn wir eine Medienbezeichnung von HBCI4Java gekriegt haben und das genau
+        // eine einzige ist. Dann uebernehmen wir diese ohne Rueckfrage. Der User
+        // hat hier sonst eh keine andere Wahl.
+        String media = retData.toString();
+        if (media.length() > 0 && !media.contains("|"))
+        {
+          Logger.info("having exactly one TAN media name (provided by institute) - automatically using this: " + media);
+          retData.replace(0,retData.length(),media);
+          return true;
+        }
+
+        // Falls wir eine PIN/TAN-Config haben, in der die Medienbezeichnung
+        // hinterlegt ist, dann nehmen wir die.
         if (config != null)
         {
-          String media =  config.getTanMedia();
+          media =  config.getTanMedia();
           if (media != null && media.length() > 0)
           {
-            // OK, die nehmen wir
+            Logger.info("having a stored TAN media name (provided by user) - automatically using this: " + media);
             retData.replace(0,retData.length(),media);
             return true;
           }
         }
 
-        TanMediaDialog tmd = new TanMediaDialog(config);
+        Logger.info("asking user for TAN media (options provided by institute: " + media + ")");
+        TanMediaDialog tmd = new TanMediaDialog(config,retData.toString());
         retData.replace(0,retData.length(),(String) tmd.open());
         return true;
       }
@@ -334,57 +392,30 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
     
     return false;
   }
+  
+  /**
+   * Versucht den zugehoerigen Auftrag zu ermitteln.
+   * @param passport der Passport.
+   * @return der Auftrag oder NULL, wenn er nicht ermittelbar war.
+   */
+  private HibiscusDBObject getContext(HBCIPassport passport)
+  {
+    String externalId = null;
+    
+    try
+    {
+      if (!(passport instanceof AbstractHBCIPassport))
+        return null;
+      
+      externalId = (String) ((AbstractHBCIPassport)passport).getPersistentData("externalid");
+      return HBCIContext.unserialize(externalId);
+    }
+    catch (Exception e)
+    {
+      Logger.error("unable to load transfer for external id: " + externalId,e);
+    }
+    
+    return null;
+  }
 
 }
-
-
-/**********************************************************************
- * $Log: PassportHandleImpl.java,v $
- * Revision 1.14  2011/05/27 12:39:59  willuhn
- * *** empty log message ***
- *
- * Revision 1.13  2011-05-27 10:51:02  willuhn
- * @N Erster Support fuer optisches chipTAN
- *
- * Revision 1.12  2011-05-26 08:52:26  willuhn
- * @N Challenge HHDuc fuer Diagnose-Zwecke loggen
- *
- * Revision 1.11  2011-05-24 09:06:11  willuhn
- * @C Refactoring und Vereinfachung von HBCI-Callbacks
- *
- * Revision 1.10  2011-05-19 07:59:53  willuhn
- * @C optisches chipTAN voruebergehend deaktiviert, damit ich in Ruhe in hbci4Java an der Unterstuetzung weiterarbeiten kann
- *
- * Revision 1.9  2011-05-10 11:16:55  willuhn
- * @C Fallback auf normalen TAN-Dialog, wenn der Flicker-Code nicht lesbar ist
- *
- * Revision 1.8  2011-05-09 17:27:39  willuhn
- * @N Erste Vorbereitungen fuer optisches chipTAN
- *
- * Revision 1.7  2011-05-09 09:35:15  willuhn
- * @N BUGZILLA 827
- *
- * Revision 1.6  2010-12-15 13:17:25  willuhn
- * @N Code zum Parsen der TAN-Verfahren in PtSecMech ausgelagert. Wenn ein TAN-Verfahren aus Vorauswahl abgespeichert wurde, wird es nun nur noch dann automatisch verwendet, wenn es in der aktuellen Liste der TAN-Verfahren noch enthalten ist. Siehe http://www.onlinebanking-forum.de/phpBB2/viewtopic.php?t=12545
- *
- * Revision 1.5  2010-10-27 10:25:10  willuhn
- * @C Unnoetiges Fangen und Weiterwerfen von Exceptions
- *
- * Revision 1.4  2010-09-29 23:43:34  willuhn
- * @N Automatisches Abgleichen und Anlegen von Konten aus KontoFetchFromPassport in KontoMerge verschoben
- * @N Konten automatisch (mit Rueckfrage) anlegen, wenn das Testen der HBCI-Konfiguration erfolgreich war
- * @N Config-Test jetzt auch bei Schluesseldatei
- * @B in PassportHandleImpl#getKonten() wurder der Converter-Funktion seit jeher die falsche Passport-Klasse uebergeben. Da gehoerte nicht das Interface hin sondern die Impl
- *
- * Revision 1.3  2010-09-08 15:04:52  willuhn
- * @N Config des Sicherheitsmediums als Context in Passport speichern
- *
- * Revision 1.2  2010-09-07 15:17:08  willuhn
- * @N GUI-Cleanup
- *
- * Revision 1.1  2010/06/17 11:38:16  willuhn
- * @C kompletten Code aus "hbci_passport_pintan" in Hibiscus verschoben - es macht eigentlich keinen Sinn mehr, das in separaten Projekten zu fuehren
- *
- * Revision 1.15  2010/03/10 15:42:14  willuhn
- * @N BUGZILLA 831
- **********************************************************************/

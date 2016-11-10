@@ -14,6 +14,8 @@ package de.willuhn.jameica.hbci.gui.views;
 
 import java.rmi.RemoteException;
 
+import javax.annotation.Resource;
+
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.widgets.Event;
@@ -27,20 +29,20 @@ import de.willuhn.jameica.gui.input.Input;
 import de.willuhn.jameica.gui.parts.Button;
 import de.willuhn.jameica.gui.parts.ButtonArea;
 import de.willuhn.jameica.gui.util.ColumnLayout;
+import de.willuhn.jameica.gui.util.Container;
 import de.willuhn.jameica.gui.util.SimpleContainer;
 import de.willuhn.jameica.gui.util.TabGroup;
 import de.willuhn.jameica.hbci.HBCI;
-import de.willuhn.jameica.hbci.HBCIProperties;
-import de.willuhn.jameica.hbci.gui.action.KontoDelete;
 import de.willuhn.jameica.hbci.gui.action.KontoFetchUmsaetze;
 import de.willuhn.jameica.hbci.gui.action.KontoSyncViaScripting;
-import de.willuhn.jameica.hbci.gui.action.ProtokollList;
+import de.willuhn.jameica.hbci.gui.action.KontoauszugRpt;
 import de.willuhn.jameica.hbci.gui.action.UmsatzDetailEdit;
-import de.willuhn.jameica.hbci.gui.action.UmsatzList;
 import de.willuhn.jameica.hbci.gui.controller.KontoControl;
 import de.willuhn.jameica.hbci.gui.filter.KontoFilter;
 import de.willuhn.jameica.hbci.gui.input.KontoInput;
 import de.willuhn.jameica.hbci.rmi.Konto;
+import de.willuhn.jameica.hbci.synchronize.SynchronizeEngine;
+import de.willuhn.jameica.hbci.synchronize.jobs.SynchronizeJobKontoauszug;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.OperationCanceledException;
@@ -56,6 +58,9 @@ public class KontoNew extends AbstractView
   private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
 
   private KontoControl control = null;
+  
+  @Resource
+  private SynchronizeEngine synchronizeEngine = null;
   
   /**
    * ct,
@@ -115,40 +120,53 @@ public class KontoNew extends AbstractView
     });
     quickSelect.paint(this.getParent());
 
-    ColumnLayout columns = new ColumnLayout(getParent(),2);
-    SimpleContainer left = new SimpleContainer(columns.getComposite());
+    TabFolder lf = new TabFolder(this.getParent(), SWT.NONE);
+    lf.setLayoutData(new GridData(GridData.FILL_HORIZONTAL));
 
-    left.addHeadline(i18n.tr("Eigenschaften"));
-    left.addLabelPair(i18n.tr("Bezeichnung des Kontos"),   control.getBezeichnung());
-    left.addLabelPair(i18n.tr("Kontoinhaber"),             control.getName());
-    left.addLabelPair(i18n.tr("Saldo"),                    control.getSaldo());
+    TabGroup props = new TabGroup(lf,i18n.tr("Eigenschaften"));
+    {
+      ColumnLayout columns = new ColumnLayout(props.getComposite(),2);
+      Container left = new SimpleContainer(columns.getComposite());
+      left.addLabelPair(i18n.tr("Gruppe"),                   control.getKategorie());
+      left.addLabelPair(i18n.tr("Bezeichnung des Kontos"),   control.getBezeichnung());
+      left.addInput(control.getAccountType());
+      left.addLabelPair(i18n.tr("Kontoinhaber"),             control.getName());
+      left.addLabelPair(i18n.tr("Saldo"),                    control.getSaldo());
+      
+      Input avail = control.getSaldoAvailable();
+      if (avail != null)
+        left.addLabelPair(i18n.tr("Verfügbarer Betrag"),avail);
+
+      Container right = new SimpleContainer(columns.getComposite(),true);
+      right.addHeadline(i18n.tr("Notizen"));
+      right.addPart(control.getKommentar());
+    }
+
+
+    TabGroup account = new TabGroup(lf,i18n.tr("Zugangsdaten"));
+    {
+      ColumnLayout columns = new ColumnLayout(account.getComposite(),2);
+      Container left = new SimpleContainer(columns.getComposite());
+      left.addLabelPair(i18n.tr("Kundenkennung"),        control.getKundennummer());
+      left.addLabelPair(i18n.tr("Kontonummer"),          control.getKontonummer());
+      left.addLabelPair(i18n.tr("Bankleitzahl"),         control.getBlz());
+      left.addLabelPair(i18n.tr("Unterkontonummer"),     control.getUnterkonto());
+      left.addInput(control.getBackendAuswahl());
+      left.addInput(control.getPassportAuswahl());
+
+      Container right = new SimpleContainer(columns.getComposite());
+      right.addLabelPair(i18n.tr("IBAN"),                     control.getIban());
+      right.addLabelPair(i18n.tr("BIC"),                      control.getBic());
+      right.addInput(control.getOffline());
+    }
     
-    Input avail = control.getSaldoAvailable();
-    if (avail != null)
-      left.addLabelPair(i18n.tr("Verfügbarer Betrag"),avail);
-
-    left.addHeadline(i18n.tr("HBCI-Konfiguration"));
-    left.addLabelPair(i18n.tr("Verfahren"),                control.getPassportAuswahl());
-    left.addLabelPair(i18n.tr("Kundennummer"),             control.getKundennummer());
-		left.addLabelPair(i18n.tr("Kontonummer"),              control.getKontonummer());
-		left.addLabelPair(i18n.tr("Unterkontonummer"),         control.getUnterkonto());
-		left.addLabelPair(i18n.tr("Bankleitzahl"),             control.getBlz());
-
-    SimpleContainer right = new SimpleContainer(columns.getComposite(),true);
-    right.addHeadline(i18n.tr("IBAN/BIC"));
-    right.addLabelPair(i18n.tr("IBAN"),                    control.getIban());
-    right.addLabelPair(i18n.tr("BIC"),                     control.getBic());
-
-    right.addHeadline(i18n.tr("Notizen"));
-    right.addPart(control.getKommentar());
-    right.addInput(control.getOffline());
-
     // und noch die Abschicken-Knoepfe
 		ButtonArea buttonArea = new ButtonArea();
     buttonArea.addButton(control.getSynchronizeOptions());
-    buttonArea.addButton(i18n.tr("Protokoll des Kontos"),new ProtokollList(),control.getKonto(),false,"dialog-information.png");
-		buttonArea.addButton(i18n.tr("Konto löschen"),new KontoDelete(),control.getKonto(),false,"user-trash-full.png");
-		buttonArea.addButton(i18n.tr("Speichern"),new Action()
+    
+    buttonArea.addButton(control.getProtoButton());
+		buttonArea.addButton(control.getDelButton());
+		buttonArea.addButton(i18n.tr("&Speichern"),new Action()
     {
       public void handleAction(Object context) throws ApplicationException
       {
@@ -161,39 +179,43 @@ public class KontoNew extends AbstractView
     TabFolder folder = new TabFolder(getParent(), SWT.NONE);
     folder.setLayoutData(new GridData(GridData.FILL_BOTH));
 
-    TabGroup tab = new TabGroup(folder,i18n.tr("Umsätze der letzten {0} Tage",""+HBCIProperties.UMSATZ_DEFAULT_DAYS), false,1);
+    TabGroup tab = new TabGroup(folder,i18n.tr("Umsätze"), false,1);
     control.getUmsatzList().paint(tab.getComposite());
 
     TabGroup tab2 = new TabGroup(folder,i18n.tr("Saldo im Verlauf"),false,1);
     control.getSaldoChart().paint(tab2.getComposite());
 
-    boolean scripting = Application.getPluginLoader().isInstalled("de.willuhn.jameica.scripting.Plugin");
-
     ButtonArea buttons = new ButtonArea();
 
     Button fetch = null;
 
-    int flags = control.getKonto().getFlags();
-    if ((flags & Konto.FLAG_OFFLINE) == Konto.FLAG_OFFLINE)
+    Konto konto = control.getKonto();
+    if (konto.hasFlag(Konto.FLAG_OFFLINE))
     {
-      fetch = new Button(i18n.tr("Umsatz anlegen"), new UmsatzDetailEdit(),control.getKonto(),false,"emblem-documents.png");
-      
-      if (scripting)
+      fetch = new Button(i18n.tr("Umsatz anlegen"), new UmsatzDetailEdit(),konto,false,"emblem-documents.png");
+
+      // Checken, ob wir fuer das Konto den neuen Synchronize-Support haben
+      if (synchronizeEngine.supports(SynchronizeJobKontoauszug.class,konto))
       {
-        Button sync = new Button(i18n.tr("via Scripting synchronisieren"), new KontoSyncViaScripting(),control.getKonto(),false,"mail-send-receive.png");
-        sync.setEnabled((flags & Konto.FLAG_DISABLED) != Konto.FLAG_DISABLED);
+        Button sync = new Button(i18n.tr("Saldo und Umsätze abrufen"), new KontoFetchUmsaetze(),konto,false,"mail-send-receive.png");
+        sync.setEnabled(!konto.hasFlag(Konto.FLAG_DISABLED));
+        buttons.addButton(sync);
+      }
+      else // Fallback auf das alte Verfahren
+      {
+        Button sync = new Button(i18n.tr("via Scripting synchronisieren"), new KontoSyncViaScripting(),konto,false,"mail-send-receive.png");
+        sync.setEnabled(!konto.hasFlag(Konto.FLAG_DISABLED));
         buttons.addButton(sync);
       }
     }
     else
     {
-      fetch = new Button(i18n.tr("Saldo und Umsätze abrufen"), new KontoFetchUmsaetze(),control.getKonto(),false,"mail-send-receive.png");
+      fetch = new Button(i18n.tr("Saldo und Umsätze abrufen"), new KontoFetchUmsaetze(),konto,false,"mail-send-receive.png");
     }
-    
-    fetch.setEnabled((flags & Konto.FLAG_DISABLED) != Konto.FLAG_DISABLED);
+    fetch.setEnabled(!konto.hasFlag(Konto.FLAG_DISABLED));
     buttons.addButton(fetch);
     
-    buttons.addButton(i18n.tr("Alle Umsätze anzeigen"),     new UmsatzList(),control.getKonto(),false,"text-x-generic.png");
+    buttons.addButton(i18n.tr("Alle Umsätze anzeigen"),new KontoauszugRpt(),konto,false,"text-x-generic.png");
     buttons.paint(getParent());
   }
   
@@ -215,41 +237,3 @@ public class KontoNew extends AbstractView
   }
 
 }
-
-
-/**********************************************************************
- * $Log: KontoNew.java,v $
- * Revision 1.39  2012/05/18 13:25:44  willuhn
- * @N Quick-Select des Kontos in Konto-Details um schneller zwischen den Konten wechseln zu können
- *
- * Revision 1.38  2011/05/03 10:13:15  willuhn
- * @R Hintergrund-Farbe nicht mehr explizit setzen. Erzeugt auf Windows und insb. Mac teilweise unschoene Effekte. Besonders innerhalb von Label-Groups, die auf Windows/Mac andere Hintergrund-Farben verwenden als der Default-Hintergrund
- *
- * Revision 1.37  2011-04-29 11:38:57  willuhn
- * @N Konfiguration der HBCI-Medien ueberarbeitet. Es gibt nun direkt in der Navi einen Punkt "Bank-Zugaenge", in der alle Medien angezeigt werden.
- *
- * Revision 1.36  2011-04-08 15:19:14  willuhn
- * @R Alle Zurueck-Buttons entfernt - es gibt jetzt einen globalen Zurueck-Button oben rechts
- * @C Code-Cleanup
- *
- * Revision 1.35  2010-11-19 18:37:20  willuhn
- * @N Erste Version der Termin-View mit Appointment-Providern
- *
- * Revision 1.34  2010-08-11 16:06:05  willuhn
- * @N BUGZILLA 783 - Saldo-Chart ueber alle Konten
- *
- * Revision 1.33  2010-07-25 23:11:59  willuhn
- * @N Erster Code fuer Scripting-Integration
- *
- * Revision 1.32  2010/06/17 12:32:56  willuhn
- * @N BUGZILLA 530
- *
- * Revision 1.31  2010/04/22 16:40:57  willuhn
- * @N Manuelles Anlegen neuer Umsaetze fuer Offline-Konten moeglich
- *
- * Revision 1.30  2010/04/22 16:21:27  willuhn
- * @N HBCI-relevante Buttons und Aktionen fuer Offline-Konten sperren
- *
- * Revision 1.29  2010/04/22 12:42:03  willuhn
- * @N Erste Version des Supports fuer Offline-Konten
- **********************************************************************/

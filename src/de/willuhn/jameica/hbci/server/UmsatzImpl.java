@@ -27,6 +27,7 @@ import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.jameica.hbci.rmi.UmsatzTyp;
+import de.willuhn.jameica.hbci.server.VerwendungszweckUtil.Tag;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
@@ -90,15 +91,9 @@ public class UmsatzImpl extends AbstractHibiscusDBObject implements Umsatz
           HBCIProperties.checkLength(ewz[i],35);
         }
       }
-      
-      String gvCode = this.getGvCode();
-      if (gvCode != null && gvCode.length() > 3)
-        throw new ApplicationException(i18n.tr("Geschäftsvorfallcode {0} darf maximal 3 Zeichen lang sein",gvCode));
 
-      String addKey = this.getAddKey();
-      if (addKey != null && addKey.length() > 3)
-        throw new ApplicationException(i18n.tr("Textschlüssel-Zusatz {0} darf maximal 3 Zeichen lang sein",addKey));
-      
+      HBCIProperties.checkLength(this.getGvCode(),HBCIProperties.HBCI_GVCODE_MAXLENGTH);
+      HBCIProperties.checkLength(this.getAddKey(),HBCIProperties.HBCI_ADDKEY_MAXLENGTH);
 		}
 		catch (RemoteException e)
 		{
@@ -466,6 +461,10 @@ public class UmsatzImpl extends AbstractHibiscusDBObject implements Umsatz
 
     if ("mergedzweck".equals(arg0))
       return VerwendungszweckUtil.toString(this);
+
+    Tag tag = Tag.byName(arg0);
+    if (tag != null)
+      return VerwendungszweckUtil.getTag(this,tag);
 
     // BUGZILLA 86 http://www.willuhn.de/bugzilla/show_bug.cgi?id=86
     if ("empfaenger".equals(arg0))

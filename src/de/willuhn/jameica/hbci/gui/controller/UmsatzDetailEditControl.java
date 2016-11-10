@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/controller/UmsatzDetailEditControl.java,v $
- * $Revision: 1.14 $
- * $Date: 2012/05/03 21:50:47 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -18,20 +12,25 @@ import java.util.Date;
 
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
-import org.kapott.hbci.manager.HBCIUtils;
 
 import de.willuhn.jameica.gui.AbstractView;
 import de.willuhn.jameica.gui.GUI;
+import de.willuhn.jameica.gui.input.CheckboxInput;
 import de.willuhn.jameica.gui.input.DecimalInput;
 import de.willuhn.jameica.gui.input.Input;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
+import de.willuhn.jameica.hbci.gui.action.UmsatzDetailEdit;
 import de.willuhn.jameica.hbci.gui.input.AddressInput;
+import de.willuhn.jameica.hbci.messaging.SaldoMessage;
 import de.willuhn.jameica.hbci.rmi.Address;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.jameica.hbci.rmi.UmsatzTyp;
 import de.willuhn.jameica.hbci.server.VerwendungszweckUtil;
+import de.willuhn.jameica.messaging.StatusBarMessage;
+import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 
@@ -178,7 +177,7 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
     Input input = super.getValuta();
     if (!input.isEnabled())
     {
-      input.setMandatory(true);
+      input.setMandatory(false);
       input.setEnabled(true);
     }
     return input;
@@ -231,12 +230,33 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
       input.setEnabled(true);
     return input;
   }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.gui.controller.UmsatzDetailControl#getZweckSwitchValue()
+   */
+  @Override
+  protected boolean getZweckSwitchValue()
+  {
+    // Hier wird grundsaetzlich alles angezeigt.
+    return true;
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.gui.controller.UmsatzDetailControl#getZweckSwitch()
+   */
+  @Override
+  public CheckboxInput getZweckSwitch() throws RemoteException
+  {
+    CheckboxInput input = super.getZweckSwitch();
+    input.setEnabled(false);
+    return input;
+  }
 
   /**
    * @see de.willuhn.jameica.hbci.gui.controller.UmsatzDetailControl#handleStore()
    */
-  public synchronized void handleStore() {
-
+  public boolean handleStore()
+  {
     Umsatz u = getUmsatz();
     try {
 
@@ -251,9 +271,9 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
       u.setZweck((String) getZweck().getValue());
       u.setArt((String)getArt().getValue());
       
-      u.setBetrag((Double)getBetrag().getValue());
+      Double betrag = (Double) getBetrag().getValue();
+      u.setBetrag(betrag != null ? betrag : 0.0d);
       
-      Date du = (Date)getDatum().getValue();
       Double su = (Double)getSaldo().getValue();
       
       // BUGZILLA 586
@@ -263,12 +283,28 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
       {
         k.setSaldo(su);
         k.store();
+        Application.getMessagingFactory().sendMessage(new SaldoMessage(k));
       }
       
       u.setCustomerRef((String)getCustomerRef().getValue());
-      u.setDatum(du);
       u.setPrimanota((String)getPrimanota().getValue());
-      u.setValuta((Date)getValuta().getValue());
+      
+      Date valuta = (Date) getValuta().getValue();
+      Date datum  = (Date) getDatum().getValue();
+      
+      if (valuta == null)
+      {
+        valuta = datum;
+        getValuta().setValue(valuta);
+      }
+      if (datum == null)
+      {
+        datum = valuta;
+        getDatum().setValue(datum);
+      }
+      
+      u.setValuta(valuta);
+      u.setDatum(datum);
       
       String gvcode = (String) getGvCode().getValue();
       String add = null;
@@ -297,7 +333,7 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
       String[] lines = VerwendungszweckUtil.split(z);
       VerwendungszweckUtil.apply(u,lines);
       
-      getUmsatz().store();
+      u.store();
 
       if (getEmpfaengerBLZ().hasChanged() ||
           getEmpfaengerKonto().hasChanged() ||
@@ -319,15 +355,16 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
           u.getGegenkontoBLZ(),
           HBCI.DATEFORMAT.format(u.getDatum()),
           u.getZweck(),
-          u.getKonto().getWaehrung() + " " + HBCI.DECIMALFORMAT.format(u.getBetrag())
+          k.getWaehrung() + " " + HBCI.DECIMALFORMAT.format(u.getBetrag())
         };
 
         String msg = i18n.tr("Umsatz [Gegenkonto: {0}, Kto. {1} BLZ {2}], Datum {3}, Zweck: {4}] {5} geändert",fields);
-        getUmsatz().getKonto().addToProtokoll(msg,Protokoll.TYP_SUCCESS);
+        k.addToProtokoll(msg,Protokoll.TYP_SUCCESS);
       }
 
       u.transactionCommit();
-      GUI.getStatusBar().setSuccessText(i18n.tr("Umsatz gespeichert"));
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Umsatz gespeichert"),StatusBarMessage.TYPE_SUCCESS));
+      return true;
     }
     catch (ApplicationException e2)
     {
@@ -339,7 +376,7 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
       {
         Logger.error("unable to rollback transaction",e1);
       }
-      GUI.getView().setErrorText(e2.getMessage());
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(e2.getMessage(),StatusBarMessage.TYPE_ERROR));
     }
     catch (RemoteException e)
     {
@@ -352,7 +389,34 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
         Logger.error("unable to rollback transaction",e1);
       }
       Logger.error("error while storing umsatz",e);
-      GUI.getStatusBar().setErrorText(i18n.tr("Fehler beim Speichern des Umsatzes"));
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Speichern des Umsatzes: {0}",e.getMessage()),StatusBarMessage.TYPE_ERROR));
+    }
+    return false;
+  }
+
+  /**
+   * Speichert den Umsatz und erstellt die naechste neue Buchung.
+   */
+  public void handleNext()
+  {
+    Umsatz u = getUmsatz();
+    try
+    {
+      if (this.handleStore())
+      {
+        new UmsatzDetailEdit().handleAction(u.getKonto());
+        // Wir muessen die Message nach dem Wechsel des Dialogs nochmal schicken, weil die Notifications nach dem Wechsel des Dialogs resettet werden
+        Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Umsatz gespeichert, neuer Umsatz angelegt"),StatusBarMessage.TYPE_SUCCESS));
+      }
+    }
+    catch (ApplicationException e2)
+    {
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(e2.getMessage(),StatusBarMessage.TYPE_ERROR));
+    }
+    catch (RemoteException e)
+    {
+      Logger.error("error while storing umsatz",e);
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Speichern des Umsatzes: {0}",e.getMessage()),StatusBarMessage.TYPE_ERROR));
     }
   }
 
@@ -376,7 +440,7 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
 
         String blz = empfaenger.getBlz();
         getEmpfaengerBLZ().setValue(blz);
-        String name = HBCIUtils.getNameForBLZ(blz);
+        String name = HBCIProperties.getNameForBank(blz);
         getEmpfaengerBLZ().setComment(name);
       }
       catch (RemoteException er)
@@ -387,51 +451,3 @@ public class UmsatzDetailEditControl extends UmsatzDetailControl
     }
   }
 }
-
-
-/**********************************************************************
- * $Log: UmsatzDetailEditControl.java,v $
- * Revision 1.14  2012/05/03 21:50:47  willuhn
- * @B BUGZILLA 1232 - Saldo des Kontos bei Offline-Konten nur bei neuen Umsaetzen uebernehmen - nicht beim Bearbeiten existierender
- *
- * Revision 1.13  2012/04/05 21:44:18  willuhn
- * @B BUGZILLA 1219
- *
- * Revision 1.12  2011-07-25 17:17:19  willuhn
- * @N BUGZILLA 1065 - zusaetzlich noch addkey
- *
- * Revision 1.11  2011-07-25 14:42:40  willuhn
- * @N BUGZILLA 1065
- *
- * Revision 1.10  2011-06-07 10:07:50  willuhn
- * @C Verwendungszweck-Handling vereinheitlicht/vereinfacht - geht jetzt fast ueberall ueber VerwendungszweckUtil
- *
- * Revision 1.9  2011-04-07 17:52:06  willuhn
- * @N BUGZILLA 1014
- *
- * Revision 1.8  2010-11-08 10:46:33  willuhn
- * @B BUGZILLA 945 - Quatsch - der Saldo wird immer uebernommen
- *
- * Revision 1.7  2010-11-08 10:45:21  willuhn
- * @B BUGZILLA 945 - die Uhrzeit muss noch entfernt werden, damit das passt
- *
- * Revision 1.6  2010/05/15 20:01:39  willuhn
- * @N BUGZILLA 701
- *
- * Revision 1.5  2010/04/22 16:48:15  willuhn
- * *** empty log message ***
- *
- * Revision 1.4  2010/04/22 16:47:49  willuhn
- * *** empty log message ***
- *
- * Revision 1.3  2009/12/10 17:29:08  willuhn
- * @B ClassCastException
- *
- * Revision 1.2  2009/01/04 14:47:53  willuhn
- * @N Bearbeiten der Umsaetze nochmal ueberarbeitet - Codecleanup
- *
- * Revision 1.1  2009/01/04 01:25:47  willuhn
- * @N Checksumme von Umsaetzen wird nun generell beim Anlegen des Datensatzes gespeichert. Damit koennen Umsaetze nun problemlos geaendert werden, ohne mit "hasChangedByUser" checken zu muessen. Die Checksumme bleibt immer erhalten, weil sie in UmsatzImpl#insert() sofort zu Beginn angelegt wird
- * @N Umsaetze sind nun vollstaendig editierbar
- *
- **********************************************************************/

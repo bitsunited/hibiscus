@@ -18,16 +18,22 @@ import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.lang.StringUtils;
+import org.kapott.hbci.manager.HBCIUtils;
+
+import de.jost_net.OBanToo.SEPA.IBAN;
 import de.willuhn.datasource.GenericObject;
-import de.willuhn.datasource.pseudo.PseudoIterator;
 import de.willuhn.datasource.rmi.DBIterator;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.rmi.Address;
 import de.willuhn.jameica.hbci.rmi.Addressbook;
 import de.willuhn.jameica.hbci.rmi.HibiscusAddress;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.logging.Logger;
+import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
 
 /**
@@ -88,13 +94,21 @@ public class AddressbookHibiscusImpl extends UnicastRemoteObject implements Addr
         // Gross-Kleinschreibung ignorieren wir
         String s = "%" + text.toLowerCase() + "%";
         list.addFilter("(kontonummer LIKE ? OR " +
-                     " blz LIKE ? OR " +
-                     " LOWER(kategorie) LIKE ? OR " +
-                     " LOWER(name) LIKE ? OR " +
-                     " LOWER(kommentar) LIKE ?)",new Object[]{s,s,s,s,s});
+                       " LOWER(iban) LIKE ? OR " +
+                       " blz LIKE ? OR " +
+                       " LOWER(kategorie) LIKE ? OR " +
+                       " LOWER(name) LIKE ? OR " +
+                       " LOWER(kommentar) LIKE ?)",s,s,s,s,s,s);
       }
       list.setOrder("ORDER by LOWER(name)");
-      result.addAll(PseudoIterator.asList(list));
+      
+      // Iterieren ueber die Adressen um BIC/IBAN zu vervollstaendigen
+      while (list.hasNext())
+      {
+        HibiscusAddress a = (HibiscusAddress) list.next();
+        this.completeIBAN(a);
+        result.add(a);
+      }
     }
 
     // 2) In den eigenen Konten suchen
@@ -134,15 +148,83 @@ public class AddressbookHibiscusImpl extends UnicastRemoteObject implements Addr
    */
   private GenericObject contains(DBIterator it, Address a) throws RemoteException
   {
-    it.addFilter("kontonummer like ?", new Object[] {"%" + a.getKontonummer()});
-    it.addFilter("blz=?",              new Object[] {a.getBlz()});
+    String kto  = StringUtils.trimToNull(a.getKontonummer());
+    String iban = StringUtils.trimToNull(a.getIban());
+    String name = StringUtils.trimToNull(a.getName());
+    
+    if (iban != null)
+    {
+      it.addFilter("LOWER(iban)=?",iban.toLowerCase());
+    }
+    else
+    {
+      it.addFilter("kontonummer like ?", "%" + kto);
+      it.addFilter("blz=?",              a.getBlz());
+    }
 
-    String name = a.getName();
     if (name != null)
-      it.addFilter("LOWER(name)=?", new Object[] {name.toLowerCase()});
+      it.addFilter("LOWER(name)=?",name.toLowerCase());
     
     return it.hasNext() ? it.next() : null;
   }
+  
+  /**
+   * Vervollstaendigt IBAN und BIC bei der Adresse, falls noch nicht hinterlegt und speichert die Adresse ab.
+   * @param address die Adresse.
+   */
+  private void completeIBAN(HibiscusAddress address)
+  {
+    if (address == null)
+      return;
+    
+    try
+    {
+      String blz   = StringUtils.trimToNull(address.getBlz());
+      String konto = StringUtils.trimToNull(address.getKontonummer());
+      
+      if (blz == null || konto == null)
+        return;
+
+      boolean haveChanged = false;
+      
+      String bic = null;
+      
+      if (HBCI.COMPLETE_IBAN && StringUtils.trimToNull(address.getIban()) == null)
+      {
+        IBAN iban = HBCIProperties.getIBAN(blz,konto);
+        bic = iban.getBIC();
+        address.setIban(iban.getIBAN());
+        haveChanged = true;
+      }
+      
+      if (StringUtils.trimToNull(address.getBic()) == null)
+      {
+        if (bic == null) // nur wenn sie nicht schon von obantoo ermittelt wurde
+          bic = HBCIUtils.getBICForBLZ(blz);
+        if (StringUtils.trimToNull(bic) != null)
+        {
+          address.setBic(bic);
+          haveChanged = true;
+        }
+      }
+
+      if (haveChanged)
+      {
+        address.store();
+        Logger.debug("auto-completed IBAN/BIC for address");
+      }
+    }
+    catch (ApplicationException ae)
+    {
+      Logger.warn("unable to complete IBAN/BIC for address: " + ae.getMessage());
+    }
+    catch (Exception e)
+    {
+      Logger.error("unable to complete IBAN/BIC for address",e);
+    }
+  }
+  
+  
 
   /**
    * Hilfsklasse, um ein Konto in ein Address-Interface zu packen
@@ -221,43 +303,3 @@ public class AddressbookHibiscusImpl extends UnicastRemoteObject implements Addr
   }
 
 }
-
-
-/*********************************************************************
- * $Log: AddressbookHibiscusImpl.java,v $
- * Revision 1.8  2010/04/14 17:44:10  willuhn
- * @N BUGZILLA 83
- *
- * Revision 1.7  2010/04/11 21:57:08  willuhn
- * @N Anzeige der eigenen Konten im Adressbuch als "virtuelle" Adressen. Basierend auf Ralfs Patch.
- *
- * Revision 1.6  2009/05/06 16:23:24  willuhn
- * @B NPE
- *
- * Revision 1.5  2008/11/17 23:30:00  willuhn
- * @C Aufrufe der depeicated BLZ-Funktionen angepasst
- *
- * Revision 1.4  2008/04/27 22:22:56  willuhn
- * @C I18N-Referenzen statisch
- *
- * Revision 1.3  2007/04/24 17:52:17  willuhn
- * @N Bereits in den Umsatzdetails erkennen, ob die Adresse im Adressbuch ist
- * @C Gross-Kleinschreibung in Adressbuch-Suche
- *
- * Revision 1.2  2007/04/23 18:17:12  willuhn
- * @B Falsche Standardreihenfolge
- *
- * Revision 1.1  2007/04/23 18:07:15  willuhn
- * @C Redesign: "Adresse" nach "HibiscusAddress" umbenannt
- * @C Redesign: "Transfer" nach "HibiscusTransfer" umbenannt
- * @C Redesign: Neues Interface "Transfer", welches von Ueberweisungen, Lastschriften UND Umsaetzen implementiert wird
- * @N Anbindung externer Adressbuecher
- *
- * Revision 1.2  2007/04/20 14:55:31  willuhn
- * @C s/findAddress/findAddresses/
- *
- * Revision 1.1  2007/04/20 14:49:05  willuhn
- * @N Support fuer externe Adressbuecher
- * @N Action "EmpfaengerAdd" "aufgebohrt"
- *
- **********************************************************************/

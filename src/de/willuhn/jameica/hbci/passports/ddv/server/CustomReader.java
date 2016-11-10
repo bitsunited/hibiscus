@@ -12,20 +12,21 @@
  **********************************************************************/
 package de.willuhn.jameica.hbci.passports.ddv.server;
 
-import de.willuhn.jameica.hbci.passports.ddv.rmi.Reader;
+import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.system.Application;
 
 /**
  * Implementierung fuer die Default-Einstellungen eines
  * selbstkonfigurierten Readers.
  */
-public class CustomReader extends AbstractReader implements Reader
+public class CustomReader extends AbstractReader
 {
   /**
    * @see de.willuhn.jameica.hbci.passports.ddv.rmi.Reader#getName()
    */
   public String getName()
   {
-    return "Benutzerdefinierter Leser";
+    return Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N().tr("Benutzerdefinierter CTAPI-Leser");
   }
 
   /**

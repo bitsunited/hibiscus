@@ -1,13 +1,7 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/io/MT940UmsatzExporter.java,v $
- * $Revision: 1.13 $
- * $Date: 2012/03/06 21:44:26 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
- * All rights reserved
+ * Copyright (c) by Olaf Willuhn
+ * GNU GPLv2
  *
  **********************************************************************/
 
@@ -27,6 +21,7 @@ import org.apache.commons.lang.StringUtils;
 import de.willuhn.datasource.BeanUtil;
 import de.willuhn.io.IOUtil;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.gui.ext.ExportSaldoExtension;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.jameica.hbci.server.VerwendungszweckUtil;
@@ -41,6 +36,12 @@ import de.willuhn.util.ProgressMonitor;
  */
 public class MT940UmsatzExporter implements Exporter
 {
+  protected final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
+  
+  protected final static String NL            = "\r\n";
+  protected final static DateFormat DF_YYMMDD = new SimpleDateFormat("yyMMdd");
+  protected final static DateFormat DF_MMDD   = new SimpleDateFormat("MMdd");
+  
   /**
    * MT940-Zeichensatz.
    * Ist eigentlich nicht noetig, weil Swift nur ein Subset von ISO-8859
@@ -50,13 +51,6 @@ public class MT940UmsatzExporter implements Exporter
    */
   public final static String CHARSET  = "iso-8859-1";
 
-  private final static String NL      = "\r\n";
-  
-  private final static DateFormat DF_YYMMDD = new SimpleDateFormat("yyMMdd");
-  private final static DateFormat DF_MMDD   = new SimpleDateFormat("MMdd");
-  
-  private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
-  
   /**
    * @see de.willuhn.jameica.hbci.io.Exporter#doExport(java.lang.Object[], de.willuhn.jameica.hbci.io.IOFormat, java.io.OutputStream, de.willuhn.util.ProgressMonitor)
    */
@@ -79,6 +73,9 @@ public class MT940UmsatzExporter implements Exporter
         monitor.setStatusText(i18n.tr("Exportiere Daten"));
       }
 
+      Boolean b         = (Boolean) Exporter.SESSION.get(ExportSaldoExtension.KEY_SALDO_HIDE);
+      boolean showSaldo = (b == null || !b.booleanValue());
+      
       for (int i=0;i<objects.length;++i)
       {
         if (monitor != null)  
@@ -96,19 +93,24 @@ public class MT940UmsatzExporter implements Exporter
     		Konto k     = u.getKonto();
     		String curr = k.getWaehrung();
 
-        out.write(NL + ":20:Hibiscus" + NL);
+    		if (i > 0)
+    		  out.write(NL);
+    		
+        out.write(":20:Hibiscus" + NL);
     		out.write(":25:" + k.getBLZ() + "/" + k.getKontonummer() + curr + NL);
     		
-    		//(Schlusssaldo - Umsatzbetrag) > 0 -> Soll-Haben-Kennung für den Anfangssaldo = C
-    		//(Credit), sonst D (Debit)
-    		double anfangsSaldo = u.getSaldo() - u.getBetrag();
-    		
-    		//Anfangssaldo aus dem Schlusssaldo ermitteln sowie Soll-Haben-Kennung
-    		//Valuta Datum des Kontosaldos leider nicht verfügbar, deswegen wird Datum der Umsatzwertstellung genommen
-        out.write(":60F:");
-    		out.write(anfangsSaldo >= 0.0d ? "C" : "D");
-    		out.write(DF_YYMMDD.format(u.getDatum()) + curr + df.format(anfangsSaldo).replace("-","") + NL);
-
+    		if (showSaldo)
+    		{
+          //(Schlusssaldo - Umsatzbetrag) > 0 -> Soll-Haben-Kennung für den Anfangssaldo = C
+          //(Credit), sonst D (Debit)
+          double anfangsSaldo = u.getSaldo() - u.getBetrag();
+          
+          //Anfangssaldo aus dem Schlusssaldo ermitteln sowie Soll-Haben-Kennung
+          //Valuta Datum des Kontosaldos leider nicht verfügbar, deswegen wird Datum der Umsatzwertstellung genommen
+          out.write(":60F:");
+          out.write(anfangsSaldo >= 0.0d ? "C" : "D");
+          out.write(DF_YYMMDD.format(u.getDatum()) + curr + df.format(anfangsSaldo).replace("-","") + NL);
+    		}
 
         out.write(":61:" + DF_YYMMDD.format(u.getValuta()) + DF_MMDD.format(u.getDatum()));
 
@@ -153,14 +155,18 @@ public class MT940UmsatzExporter implements Exporter
         out.write(NL);
     		
 
-        out.write(":62F:");
-        //Soll-Haben-Kennung für den Schlusssaldo ermitteln
-    		double schlussSaldo = u.getSaldo();
-    		out.write(schlussSaldo >= 0.0d ? "C" : "D");
-    		out.write(DF_YYMMDD.format(u.getDatum()) + curr + df.format(schlussSaldo).replace("-",""));
+        if (showSaldo)
+        {
+          out.write(":62F:");
+          //Soll-Haben-Kennung für den Schlusssaldo ermitteln
+          double schlussSaldo = u.getSaldo();
+          out.write(schlussSaldo >= 0.0d ? "C" : "D");
+          out.write(DF_YYMMDD.format(u.getDatum()) + curr + df.format(schlussSaldo).replace("-","") + NL);
+        }
     		
-    		out.write(NL + "-" + NL);
+        out.write("-");
       }
+      out.write(NL);
     }
     catch (IOException e)
     {
@@ -184,7 +190,7 @@ public class MT940UmsatzExporter implements Exporter
     return new IOFormat[]{new IOFormat() {
       public String getName()
       {
-        return i18n.tr("Swift MT940-Format");
+        return MT940UmsatzExporter.this.getName();
       }
     
       /**
@@ -202,14 +208,14 @@ public class MT940UmsatzExporter implements Exporter
    */
   public String getName()
   {
-    return i18n.tr("MT940-Format");
+    return i18n.tr("Swift MT940-Format (pro Buchungen eine logische Datei)");
   }
 
   
   /**
    * Ableitung von OutputStreamWriter, um die Umlaute umzuschreiben.
    */
-  private class MyOutputStreamWriter extends OutputStreamWriter
+  protected class MyOutputStreamWriter extends OutputStreamWriter
   {
     private String[] search  = new String[]{"Ü", "Ö", "Ä", "ü", "ö", "ä", "ß"};
     private String[] replace = new String[]{"UE","OE","AE","ue","oe","ae","ss"};
@@ -241,48 +247,3 @@ public class MT940UmsatzExporter implements Exporter
     }
   }
 }
-
-
-/*********************************************************************
- * $Log: MT940UmsatzExporter.java,v $
- * Revision 1.13  2012/03/06 21:44:26  willuhn
- * @C code-cleanup
- *
- * Revision 1.12  2011-07-25 17:17:19  willuhn
- * @N BUGZILLA 1065 - zusaetzlich noch addkey
- *
- * Revision 1.11  2011-07-25 14:42:41  willuhn
- * @N BUGZILLA 1065
- *
- * Revision 1.10  2011-06-23 07:37:28  willuhn
- * @N Ersetzen der Umlaute beim MT940-Export abschaltbar
- * @N Beim MT940-Import explizit mit ISO-8859 lesen - ist zwar eigentlich nicht noetig, weil da per Definition keine Umlaute enthalten sein duerfen - aber wir sind ja tolerant ;)
- *
- * Revision 1.9  2011-06-09 08:50:19  willuhn
- * *** empty log message ***
- *
- * Revision 1.8  2011-06-09 08:40:33  willuhn
- * @B BUGZILLA 669 - GV-Code fehlte in Feld :86:
- *
- * Revision 1.7  2011-06-07 10:07:50  willuhn
- * @C Verwendungszweck-Handling vereinheitlicht/vereinfacht - geht jetzt fast ueberall ueber VerwendungszweckUtil
- *
- * Revision 1.6  2011-02-28 10:36:54  willuhn
- * @R t o d o  entfernt
- *
- * Revision 1.5  2011-01-12 18:03:14  willuhn
- * @B Tag :20: (Auftragsreferenz-Nr.) fehlte. Konnte sonst nicht von HBCI4Java (sprich Hibiscus MT940-Import) wieder gelesen werden. Und das waer schon maechtig doof, wenn Hibiscus die eigenen Exports nicht lesen kann ;)
- *
- * Revision 1.4  2011-01-12 17:46:30  willuhn
- * @B Zeiger im Array fehlte
- *
- * Revision 1.3  2011-01-12 17:39:46  willuhn
- * @B "-" entfernen
- *
- * Revision 1.2  2011-01-12 17:37:43  willuhn
- * @C MT940-Import und -Export sollten den gleichen Namen tragen
- *
- * Revision 1.1  2011-01-05 00:10:11  willuhn
- * @N BUGZILLA 669 - MT940-Exporter fuer Umsaetze - basierend auf dem Code von Andre. Noch zu testen!
- *
- **********************************************************************/

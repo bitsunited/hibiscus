@@ -14,6 +14,7 @@ package de.willuhn.jameica.hbci.passports.ddv.server;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.passports.ddv.rmi.Reader;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.jameica.system.Platform;
 
 /**
  * Implementierung des Kartenleser-Supports fuer javax.smartcardio.
@@ -25,7 +26,7 @@ public class PCSCReader implements Reader
    */
   public String getName()
   {
-    return Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N().tr("PC/SC-Kartenleser");
+    return Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N().tr("PC/SC-Kartenleser (Kobil, ReinerSCT und andere)");
   }
 
   /**
@@ -57,7 +58,13 @@ public class PCSCReader implements Reader
    */
   public boolean isSupported()
   {
-    return false;
+    int os = Application.getPlatform().getOS();
+    
+    return os == Platform.OS_WINDOWS ||
+           os == Platform.OS_WINDOWS_64 ||
+           os == Platform.OS_LINUX ||
+           os == Platform.OS_LINUX_64 ||
+           os == Platform.OS_MAC;
   }
 
   /**
@@ -69,24 +76,40 @@ public class PCSCReader implements Reader
   }
 
   /**
-   * @see de.willuhn.jameica.hbci.passports.ddv.rmi.Reader#isPCSCReader()
+   * @see de.willuhn.jameica.hbci.passports.ddv.rmi.Reader#getType()
    */
-  public boolean isPCSCReader()
+  public Type getType()
   {
-    return true;
+    return Type.DDV_PCSC;
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.passports.ddv.rmi.Reader#getDefaultHBCIVersion()
+   */
+  public String getDefaultHBCIVersion()
+  {
+    return "210";
   }
 
+  /**
+   * @see java.lang.Object#toString()
+   */
+  public String toString()
+  {
+    return this.getName();
+  }
+  
+  /**
+   * @see java.lang.Object#equals(java.lang.Object)
+   */
+  public boolean equals(Object obj)
+  {
+    if (!(obj instanceof Reader))
+      return false;
+    
+    Reader other = (Reader) obj;
+    String s1 = this.getClass().getName()  + this.getName();
+    String s2 = other.getClass().getName() + other.getName();
+    return s1.equals(s2);
+  }
 }
-
-
-
-/**********************************************************************
- * $Log: PCSCReader.java,v $
- * Revision 1.1  2011/09/06 11:54:25  willuhn
- * @C JavaReader in PCSCReader umbenannt - die PIN-Eingabe fehlt noch
- *
- * Revision 1.1  2011-09-01 12:16:08  willuhn
- * @N Kartenleser-Suche kann jetzt abgebrochen werden
- * @N Erster Code fuer javax.smartcardio basierend auf dem OCF-Code aus HBCI4Java 2.5.8
- *
- **********************************************************************/

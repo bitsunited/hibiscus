@@ -17,21 +17,23 @@ import java.rmi.RemoteException;
 import java.util.List;
 
 import org.eclipse.swt.widgets.Composite;
-import org.kapott.hbci.manager.HBCIUtils;
 
 import de.willuhn.jameica.gui.Action;
 import de.willuhn.jameica.gui.dialogs.AbstractDialog;
 import de.willuhn.jameica.gui.input.CheckboxInput;
 import de.willuhn.jameica.gui.input.SelectInput;
+import de.willuhn.jameica.gui.internal.buttons.Cancel;
 import de.willuhn.jameica.gui.parts.ButtonArea;
 import de.willuhn.jameica.gui.util.Container;
 import de.willuhn.jameica.gui.util.SimpleContainer;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.passports.pintan.rmi.PinTanConfig;
 import de.willuhn.jameica.hbci.rmi.Konto;
-import de.willuhn.jameica.hbci.server.hbci.HBCIFactory;
+import de.willuhn.jameica.hbci.synchronize.SynchronizeSession;
+import de.willuhn.jameica.hbci.synchronize.hbci.HBCISynchronizeBackend;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
-import de.willuhn.jameica.system.OperationCanceledException;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
@@ -66,18 +68,21 @@ public class PtSecMechDialog extends AbstractDialog
     String s = null;
     try
     {
-      Konto konto = HBCIFactory.getInstance().getCurrentKonto();
+      BeanService service = Application.getBootLoader().getBootable(BeanService.class);
+      SynchronizeSession session = service.get(HBCISynchronizeBackend.class).getCurrentSession();
+      Konto konto = session != null ? session.getKonto() : null;
+      
       if (konto != null)
       {
         s = konto.getBezeichnung();
-        String name = HBCIUtils.getNameForBLZ(konto.getBLZ());
+        String name = HBCIProperties.getNameForBank(konto.getBLZ());
         if (name != null && name.length() > 0)
           s += " [" + name + "]";
       }
     }
     catch (Exception e)
     {
-      // ignore
+      Logger.error("unable to determine current konto",e);
     }
 
     if (s != null) setTitle(i18n.tr("PIN/TAN-Verfahren - Konto {0}",s));
@@ -134,12 +139,7 @@ public class PtSecMechDialog extends AbstractDialog
         }
       }
     },null,true,"ok.png");
-    buttons.addButton(i18n.tr("Abbrechen"),new Action() {
-      public void handleAction(Object context) throws ApplicationException
-      {
-        throw new OperationCanceledException();
-      }
-    },null,false,"process-stop.png");
+    buttons.addButton(new Cancel());
     
     group.addButtonArea(buttons);
   }

@@ -26,15 +26,16 @@ import org.kapott.hbci.passport.HBCIPassport;
 
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCICallbackSWT;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.passports.rdh.InsertKeyDialog;
 import de.willuhn.jameica.hbci.passports.rdh.rmi.RDHKey;
 import de.willuhn.jameica.hbci.passports.rdh.server.PassportHandleImpl;
 import de.willuhn.jameica.hbci.passports.rdh.server.RDHKeyImpl;
-import de.willuhn.jameica.hbci.server.hbci.HBCIFactory;
 import de.willuhn.jameica.messaging.QueryMessage;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.OperationCanceledException;
+import de.willuhn.logging.Level;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
@@ -145,15 +146,15 @@ public class HBCI4JavaFormat implements KeyFormat
     }
     catch (Exception e)
     {
-      OperationCanceledException oce = (OperationCanceledException) HBCIFactory.getCause(e,OperationCanceledException.class);
+      OperationCanceledException oce = (OperationCanceledException) HBCIProperties.getCause(e,OperationCanceledException.class);
       if (oce != null)
         throw oce;
         
-      ApplicationException ae = (ApplicationException) HBCIFactory.getCause(e,ApplicationException.class);
+      ApplicationException ae = (ApplicationException) HBCIProperties.getCause(e,ApplicationException.class);
       if (ae != null)
         throw ae;
 
-      NeedKeyAckException ack = (NeedKeyAckException) HBCIFactory.getCause(e,NeedKeyAckException.class);
+      NeedKeyAckException ack = (NeedKeyAckException) HBCIProperties.getCause(e,NeedKeyAckException.class);
       if (ack != null)
       {
         Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Schlüssel erfolgreich erstellt"), StatusBarMessage.TYPE_SUCCESS));
@@ -252,15 +253,15 @@ public class HBCI4JavaFormat implements KeyFormat
     }
     catch (Exception e)
     {
-      OperationCanceledException oce = (OperationCanceledException) HBCIFactory.getCause(e,OperationCanceledException.class);
+      OperationCanceledException oce = (OperationCanceledException) HBCIProperties.getCause(e,OperationCanceledException.class);
       if (oce != null)
         throw oce;
 
-      ApplicationException ae = (ApplicationException) HBCIFactory.getCause(e,ApplicationException.class);
+      ApplicationException ae = (ApplicationException) HBCIProperties.getCause(e,ApplicationException.class);
       if (ae != null)
         throw ae;
 
-      NeedKeyAckException ack = (NeedKeyAckException) HBCIFactory.getCause(e,NeedKeyAckException.class);
+      NeedKeyAckException ack = (NeedKeyAckException) HBCIProperties.getCause(e,NeedKeyAckException.class);
       if (ack != null)
       {
         String text = i18n.tr("Bitte senden Sie den INI-Brief an Ihre Bank und warten Sie auf die Freischaltung durch die Bank.");
@@ -268,9 +269,10 @@ public class HBCI4JavaFormat implements KeyFormat
         throw new ApplicationException(text);
       }
       
-      InvalidPassphraseException ipe = (InvalidPassphraseException) HBCIFactory.getCause(e,InvalidPassphraseException.class);
+      InvalidPassphraseException ipe = (InvalidPassphraseException) HBCIProperties.getCause(e,InvalidPassphraseException.class);
       if (ipe != null)
       {
+        Logger.write(Level.TRACE,"password for key file seems to be wrong",e);
         String text = i18n.tr("Das Passwort für die Schlüsseldatei ist falsch.");
         Application.getMessagingFactory().sendMessage(new StatusBarMessage(text,StatusBarMessage.TYPE_ERROR));
         throw new ApplicationException(text);

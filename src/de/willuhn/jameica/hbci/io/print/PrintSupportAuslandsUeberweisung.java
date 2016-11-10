@@ -1,23 +1,22 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/io/print/PrintSupportAuslandsUeberweisung.java,v $
- * $Revision: 1.2 $
- * $Date: 2011/04/13 17:35:46 $
- * $Author: willuhn $
  *
- * Copyright (c) by willuhn - software & services
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
 
 package de.willuhn.jameica.hbci.io.print;
 
+import java.rmi.RemoteException;
+
 import de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung;
+import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
 
 /**
  * Druck-Support fuer Auslandsueberweisungen.
  */
-public class PrintSupportAuslandsUeberweisung extends AbstractPrintSupportBaseUeberweisung
+public class PrintSupportAuslandsUeberweisung extends AbstractPrintSupportSepaTransfer<AuslandsUeberweisung>
 {
   /**
    * ct.
@@ -33,18 +32,18 @@ public class PrintSupportAuslandsUeberweisung extends AbstractPrintSupportBaseUe
    */
   String getTitle() throws ApplicationException
   {
+    try
+    {
+      if (this.getTransfer().isTerminUeberweisung())
+        return i18n.tr("SEPA-Terminüberweisung");
+      else if (this.getTransfer().isUmbuchung())
+        return i18n.tr("SEPA-Umbuchung");
+    }
+    catch (RemoteException re)
+    {
+      Logger.error("check failed",re);
+    }
+    
     return i18n.tr("SEPA-Überweisung");
   }
 }
-
-
-
-/**********************************************************************
- * $Log: PrintSupportAuslandsUeberweisung.java,v $
- * Revision 1.2  2011/04/13 17:35:46  willuhn
- * @N Druck-Support fuer Kontoauszuege fehlte noch
- *
- * Revision 1.1  2011-04-11 14:36:37  willuhn
- * @N Druck-Support fuer Lastschriften und SEPA-Ueberweisungen
- *
- **********************************************************************/

@@ -31,9 +31,11 @@ import de.willuhn.jameica.hbci.passports.ddv.DDVConfigFactory;
 import de.willuhn.jameica.hbci.passports.ddv.SelectConfigDialog;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.server.Converter;
-import de.willuhn.jameica.hbci.server.hbci.HBCIFactory;
+import de.willuhn.jameica.hbci.synchronize.SynchronizeSession;
+import de.willuhn.jameica.hbci.synchronize.hbci.HBCISynchronizeBackend;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.plugin.AbstractPlugin;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.OperationCanceledException;
 import de.willuhn.logging.Logger;
@@ -254,19 +256,19 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
       }
 
       case HBCICallback.NEED_CHIPCARD:
-        return handleCallback(i18n.tr("Bitte legen Sie die Chipkarte in das Lesegerät"),true,settings.getBoolean("waitfor.card.insert",false));
+        return handleCallback(i18n.tr("Bitte legen Sie die Chipkarte in das Lesegerät"),true,settings.getBoolean("waitfor.card.insert",false), StatusBarMessage.TYPE_INFO);
 
       case HBCICallback.HAVE_CHIPCARD:
-        return handleCallback(i18n.tr("HBCI-Chipkarte wird ausgelesen."),false,false);
+        return handleCallback(i18n.tr("HBCI-Chipkarte wird ausgelesen."),false,false, StatusBarMessage.TYPE_SUCCESS);
 
       case HBCICallback.NEED_HARDPIN:
-        return handleCallback(i18n.tr("Bitte geben Sie die PIN in Ihren Chipkarten-Leser ein"),true,settings.getBoolean("waitfor.card.pin",false));
+        return handleCallback(i18n.tr("Bitte geben Sie die PIN in Ihren Chipkarten-Leser ein"),true,settings.getBoolean("waitfor.card.pin",false), StatusBarMessage.TYPE_INFO);
 
       case HBCICallback.HAVE_HARDPIN:
-        return handleCallback(i18n.tr("PIN wurde eingegeben."),false,false);
+        return handleCallback(i18n.tr("PIN wurde eingegeben."),false,false, StatusBarMessage.TYPE_SUCCESS);
 
       case HBCICallback.NEED_REMOVE_CHIPCARD:
-        return handleCallback(i18n.tr("Bitte entfernen Sie die Chipkarte aus dem Lesegerät."),false,settings.getBoolean("waitfor.card.eject",false));
+        return handleCallback(i18n.tr("Bitte entfernen Sie die Chipkarte aus dem Lesegerät."),false,settings.getBoolean("waitfor.card.eject",false), StatusBarMessage.TYPE_INFO);
     }
     
     return false;
@@ -278,14 +280,19 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
    * @param displayKonto true, wenn auch das Konto noch angezeigt werden soll.
    * @param wait true, wenn die Anzeige in einem modalen Dialog erfolgen soll.
    * Der Vorgang wird in dem Fall erst dann fortgesetzt, wenn der User auf OK klickt.
+   * @param type Typ der Message. Zum Beispiel {@link StatusBarMessage#TYPE_INFO}
    * @return true oder false wenn der Callback behandelt wurde oder nicht.
    * @throws Exception
    */
-  private boolean handleCallback(String text, boolean displayKonto, boolean wait) throws Exception
+  private boolean handleCallback(String text, boolean displayKonto, boolean wait, int type) throws Exception
   {
+    BeanService service = Application.getBootLoader().getBootable(BeanService.class);
+    SynchronizeSession session = service.get(HBCISynchronizeBackend.class).getCurrentSession();
+
     if (displayKonto)
     {
-      Konto konto = HBCIFactory.getInstance().getCurrentKonto();
+      Konto konto = session != null ? session.getKonto() : null;
+      
       if (konto != null)
         text += ". " + konto.getLongName();
     }
@@ -296,8 +303,9 @@ public class PassportHandleImpl extends UnicastRemoteObject implements PassportH
     }
     else
     {
-      HBCIFactory.getInstance().getProgressMonitor().setStatusText(text);
-      Application.getMessagingFactory().sendMessage(new StatusBarMessage(text,StatusBarMessage.TYPE_SUCCESS));
+      if (session != null)
+        session.getProgressMonitor().setStatusText(text);
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(text,type));
     }
     return true;
   }

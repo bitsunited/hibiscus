@@ -33,7 +33,7 @@ import de.willuhn.util.I18N;
 public class KontoMerge implements Action
 {
   private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
-  
+
   /**
    * @see de.willuhn.jameica.gui.Action#handleAction(java.lang.Object)
    */
@@ -45,29 +45,30 @@ public class KontoMerge implements Action
     try
     {
       List<Konto> konten = new ArrayList<Konto>();
-      
+
       if (context instanceof Konto)        konten.add((Konto) context);
       else if (context instanceof Konto[]) konten.addAll(Arrays.asList((Konto[])context));
       else if (context instanceof List)    konten.addAll((List)context);
-      
+
       if (konten.size() == 0)
         return;
-      
+
       DBIterator existing = Settings.getDBService().createList(Konto.class);
 
-      int created = 0;
-      int skipped = 0;
+      int created   = 0;
+      int skipped   = 0;
+      int nosupport = 0;
       for (Konto konto:konten)
       {
         Logger.info("merging konto " + konto.getKontonummer());
         // Wir checken, ob's das Konto schon gibt
         boolean found = false;
-        Logger.info("  checking if allready exists");
+        Logger.info("  checking if already exists");
 
         while (existing.hasNext())
         {
           Konto check = (Konto) existing.next();
-        
+
           // BLZ stimmt nicht ueberein
           if (!check.getBLZ().equals(konto.getBLZ()))
             continue;
@@ -75,13 +76,13 @@ public class KontoMerge implements Action
           // Kontonummer stimmt nicht ueberein.
           if (!check.getKontonummer().equals(konto.getKontonummer()))
             continue;
-          
+
           // Stimmen Passports ueberein?
           String pp = check.getPassportClass();
           if (pp == null || !pp.equals(konto.getPassportClass()))
             continue;
-          
-          
+
+
           // BUGZILLA 338: Checken, ob Bezeichnung (=Type) uebereinstimmt
           // Bezeichnung ist optional - wir checken nur, wenn auf beiden
           // Seiten ein Name vorhanden ist und sie sich unterscheiden
@@ -101,7 +102,7 @@ public class KontoMerge implements Action
             skipped++;
           }
         }
-        
+
         existing.begin();
         if (!found)
         {
@@ -112,6 +113,11 @@ public class KontoMerge implements Action
             created++;
             Logger.info("konto saved successfully");
           }
+          catch (ApplicationException ae)
+          {
+            Logger.warn("konto not supported: " + ae.getMessage());
+            nosupport++;
+          }
           catch (Exception e)
           {
             // Wenn ein Konto fehlschlaegt, soll nicht gleich der ganze Vorgang abbrechen
@@ -121,8 +127,8 @@ public class KontoMerge implements Action
         }
       }
 
-      String[] values = new String[] {Integer.toString(created),Integer.toString(skipped)};
-      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Konten erfolgreich abgeglichen. Angelegt: {0}, Übersprungen: {1}",values),StatusBarMessage.TYPE_SUCCESS));
+      String[] values = new String[] {Integer.toString(created),Integer.toString(skipped), Integer.toString(nosupport)};
+      Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Konten abgeglichen. Angelegt: {0}, Übersprungen: {1}, nicht unterstützt: {2}",values),StatusBarMessage.TYPE_SUCCESS));
     }
     catch (Exception e)
     {

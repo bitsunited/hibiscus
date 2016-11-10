@@ -23,7 +23,6 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
 import org.eclipse.swt.widgets.TableItem;
-import org.kapott.hbci.manager.HBCIUtils;
 
 import de.willuhn.datasource.GenericIterator;
 import de.willuhn.datasource.GenericObject;
@@ -38,7 +37,6 @@ import de.willuhn.jameica.gui.formatter.TableFormatter;
 import de.willuhn.jameica.gui.parts.Column;
 import de.willuhn.jameica.gui.parts.TablePart;
 import de.willuhn.jameica.gui.util.Color;
-import de.willuhn.jameica.gui.util.Font;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.PassportRegistry;
@@ -60,7 +58,7 @@ import de.willuhn.util.I18N;
  */
 public class KontoList extends TablePart implements Part
 {
-  
+
   // BUGZILLA 476
   private MessageConsumer mc = null;
 
@@ -83,7 +81,7 @@ public class KontoList extends TablePart implements Part
   public KontoList(GenericIterator konten, Action action)
   {
     super(konten,action);
-    
+
     this.i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
 
     addColumn(i18n.tr("Kontonummer"),"kontonummer",null,false,Column.ALIGN_RIGHT);
@@ -95,7 +93,7 @@ public class KontoList extends TablePart implements Part
         try
         {
           String blz = o.toString();
-          String name = HBCIUtils.getNameForBLZ(blz);
+          String name = HBCIProperties.getNameForBank(blz);
           if (name == null || name.length() == 0)
             return blz;
           return blz + " [" + name + "]";
@@ -108,8 +106,9 @@ public class KontoList extends TablePart implements Part
       }
     });
     addColumn(i18n.tr("Bezeichnung"),"bezeichnung");
-    addColumn(i18n.tr("Kommentar"),"kommentar");
-    addColumn(i18n.tr("HBCI-Medium"),"passport_class", new Formatter() {
+    addColumn(i18n.tr("Gruppe"),"kategorie");
+    addColumn(i18n.tr("Notiz"),"kommentar");
+    addColumn(i18n.tr("Verfahren"),"passport_class", new Formatter() {
       public String format(Object o)
       {
         if (o == null || !(o instanceof String))
@@ -123,7 +122,7 @@ public class KontoList extends TablePart implements Part
         catch (Exception e)
         {
           Logger.error("error while loading hbci passport for konto",e);
-          return i18n.tr("Fehler beim Ermitteln des HBCI-Mediums");
+          return i18n.tr("Fehler beim Ermitteln des Verfahrens");
         }
       }
     });
@@ -136,36 +135,30 @@ public class KontoList extends TablePart implements Part
       public void format(TableItem item)
       {
         Konto k = (Konto) item.getData();
+        final int saldocolumn = 6;
         try {
           double saldo = k.getSaldo();
           if ((saldo == 0 && k.getSaldoDatum() == null) || Double.isNaN(saldo))
-            item.setText(5,"");
+            item.setText(saldocolumn,"");
           else
-            item.setText(5,HBCI.DECIMALFORMAT.format(k.getSaldo()) + " " + k.getWaehrung());
+            item.setText(saldocolumn,HBCI.DECIMALFORMAT.format(k.getSaldo()) + " " + k.getWaehrung());
 
           // Checken, ob Konto deaktiviert ist
           int flags = k.getFlags();
-          
+
           // Deaktivierte Konten grau
           if ((flags & Konto.FLAG_DISABLED) == Konto.FLAG_DISABLED)
             item.setForeground(Color.COMMENT.getSWTColor());
-          
+
           // Offline-Konten blau
           else if ((flags & Konto.FLAG_OFFLINE) == Konto.FLAG_OFFLINE)
             item.setForeground(Color.LINK.getSWTColor());
 
           // Sonst schwarz
           else
-            item.setForeground(Color.WIDGET_FG.getSWTColor());
+            item.setForeground(Color.FOREGROUND.getSWTColor());
 
-          item.setForeground(5,ColorUtil.getForeground(k.getSaldo()));
-          
-          Konto kd = Settings.getDefaultKonto();
-          if (kd != null && kd.equals(k))
-            item.setFont(Font.BOLD.getSWTFont());
-          else
-            item.setFont(Font.DEFAULT.getSWTFont());
-          
+          item.setForeground(saldocolumn,ColorUtil.getForeground(k.getSaldo()));
         }
         catch (RemoteException e)
         {
@@ -181,12 +174,12 @@ public class KontoList extends TablePart implements Part
     setRememberColWidths(true);
 
     setContextMenu(new de.willuhn.jameica.hbci.gui.menus.KontoList());
-    
+
     this.setMulti(true);
-    
+
     this.mc = new SaldoMessageConsumer();
     Application.getMessagingFactory().registerMessageConsumer(this.mc);
-    
+
     this.addSelectionListener(new Listener()
     {
       public void handleEvent(Event event)
@@ -195,7 +188,7 @@ public class KontoList extends TablePart implements Part
       }
     });
   }
-  
+
   /**
    * Fuegt die Spalte "verfuegbarer Betrag" hinzu, wenn wenigstens ein Konto
    * aus der Liste einen solchen besitzt.
@@ -236,7 +229,7 @@ public class KontoList extends TablePart implements Part
       }
     }
   }
-  
+
   /**
    * @see de.willuhn.jameica.gui.Part#paint(org.eclipse.swt.widgets.Composite)
    */
@@ -259,10 +252,10 @@ public class KontoList extends TablePart implements Part
   private static DBIterator init() throws RemoteException
   {
     DBIterator i = Settings.getDBService().createList(Konto.class);
-    i.setOrder("ORDER BY blz, bezeichnung");
+    i.setOrder("ORDER BY LOWER(kategorie), blz, kontonummer, bezeichnung");
     return i;
   }
-  
+
   /**
    * @see de.willuhn.jameica.gui.parts.TablePart#getSummary()
    */
@@ -282,13 +275,13 @@ public class KontoList extends TablePart implements Part
         items = Arrays.asList((Konto[])o);
       else
         items = this.getItems();
-        
+
       double sum = 0.0d;
       for (Konto k:items)
       {
         sum += k.getSaldo();
       }
-      
+
       if (selected)
         return i18n.tr("{0} Konten markiert, Gesamt-Saldo: {1} {2}",new String[]{Integer.toString(items.size()),HBCI.DECIMALFORMAT.format(sum),HBCIProperties.CURRENCY_DEFAULT_DE});
 
@@ -300,7 +293,7 @@ public class KontoList extends TablePart implements Part
     }
     return super.getSummary();
   }
-  
+
   /**
    * Hilfsklasse damit wir ueber neue Salden informiert werden.
    */
@@ -332,7 +325,7 @@ public class KontoList extends TablePart implements Part
     {
       if (message == null)
         return;
-      
+
       final GenericObject o = ((ObjectMessage)message).getObject();
 
       if (o == null || !(o instanceof Konto))
@@ -346,15 +339,15 @@ public class KontoList extends TablePart implements Part
             int index = removeItem(o);
             if (index == -1)
               return; // Objekt war nicht in der Tabelle
-            
+
             // Aktualisieren, in dem wir es neu an der gleichen Position eintragen
            addItem(o,index);
-           
+
            // Wir markieren es noch in der Tabelle
            Object prev = getSelection();
            if (prev != null && prev == o)
              select(o);
-           
+
            // Summen-Zeile aktualisieren
            refreshSummary();
           }
@@ -375,86 +368,3 @@ public class KontoList extends TablePart implements Part
     }
   }
 }
-
-
-/**********************************************************************
- * $Log: KontoList.java,v $
- * Revision 1.25  2012/04/23 21:03:41  willuhn
- * @N BUGZILLA 1227
- *
- * Revision 1.24  2011-09-25 11:53:57  willuhn
- * @C Kontonummer und Saldo rechtsbuendig forcieren - siehe Mail von Hermann vom 20.09.2011
- *
- * Revision 1.23  2011-06-29 07:36:42  willuhn
- * @N BUGZILLA 1088
- *
- * Revision 1.22  2011-01-02 23:18:51  willuhn
- * @B Verfuegbarer Betrag wurde nicht korrekt als Waehrung formatiert
- *
- * Revision 1.21  2010-11-08 10:24:03  willuhn
- * @B korrekte farbige Hervorhebung auch bei Cent-Bruchteilen
- *
- * Revision 1.20  2010-07-29 21:43:22  willuhn
- * @N BUGZILLA 886
- *
- * Revision 1.19  2010/06/17 12:49:51  willuhn
- * @N BUGZILLA 530 - auch in der Liste die Spalte des verfuegbaren Betrages nur dann anzeigen, wenn wenigstens ein Konto einen solchen besitzt
- *
- * Revision 1.18  2010/06/17 12:16:52  willuhn
- * @N BUGZILLA 530
- *
- * Revision 1.17  2010/06/17 11:37:17  willuhn
- * @N Farben der Konten etwas uebersichtlicher gestaltet
- *
- * Revision 1.16  2010/04/22 15:43:06  willuhn
- * @B Debugging
- * @N Kontoliste aktualisieren
- *
- * Revision 1.15  2009/09/15 00:23:35  willuhn
- * @N BUGZILLA 745
- *
- * Revision 1.14  2009/07/09 17:08:03  willuhn
- * @N BUGZILLA #740
- *
- * Revision 1.13  2009/01/05 10:13:46  willuhn
- * @B In der Spalte "HBCI-Medium" wurd versehentlich der Saldo angezeigt
- *
- * Revision 1.12  2009/01/04 17:43:29  willuhn
- * @N BUGZILLA 532
- *
- * Revision 1.11  2009/01/04 16:38:55  willuhn
- * @N BUGZILLA 523 - ein Konto kann jetzt als Default markiert werden. Das wird bei Auftraegen vorausgewaehlt und ist fett markiert
- *
- * Revision 1.10  2007/08/29 10:04:42  willuhn
- * @N Bug 476
- *
- * Revision 1.9  2006/05/11 16:53:09  willuhn
- * @B bug 233
- *
- * Revision 1.8  2006/04/25 23:25:12  willuhn
- * @N bug 81
- *
- * Revision 1.7  2005/08/01 16:10:41  web0
- * @N synchronize
- *
- * Revision 1.6  2005/06/27 15:35:27  web0
- * @B bug 84
- *
- * Revision 1.5  2005/06/23 22:02:53  web0
- * *** empty log message ***
- *
- * Revision 1.4  2005/06/23 22:01:04  web0
- * @N added hbci media to account list
- *
- * Revision 1.3  2005/06/21 20:11:10  web0
- * @C cvs merge
- *
- * Revision 1.2  2005/05/08 17:48:51  web0
- * @N Bug 56
- *
- * Revision 1.1  2005/05/02 23:56:45  web0
- * @B bug 66, 67
- * @C umsatzliste nach vorn verschoben
- * @C protokoll nach hinten verschoben
- *
- **********************************************************************/

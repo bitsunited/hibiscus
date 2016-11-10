@@ -22,12 +22,12 @@ import de.willuhn.jameica.gui.parts.ContextMenuItem;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungNew;
 import de.willuhn.jameica.hbci.gui.action.DBObjectDelete;
-import de.willuhn.jameica.hbci.gui.action.DauerauftragNew;
 import de.willuhn.jameica.hbci.gui.action.EmpfaengerExport;
 import de.willuhn.jameica.hbci.gui.action.EmpfaengerImport;
 import de.willuhn.jameica.hbci.gui.action.EmpfaengerNew;
-import de.willuhn.jameica.hbci.gui.action.LastschriftNew;
-import de.willuhn.jameica.hbci.gui.action.UeberweisungNew;
+import de.willuhn.jameica.hbci.gui.action.SepaConvertAddress;
+import de.willuhn.jameica.hbci.gui.action.SepaDauerauftragNew;
+import de.willuhn.jameica.hbci.gui.action.SepaLastschriftNew;
 import de.willuhn.jameica.hbci.rmi.Address;
 import de.willuhn.jameica.hbci.rmi.HibiscusAddress;
 import de.willuhn.jameica.system.Application;
@@ -51,13 +51,14 @@ public class EmpfaengerList extends ContextMenu implements Extendable
     addItem(new ContextMenuItem(i18n.tr("Neue Adresse..."), new ENeu(),"contact-new.png"));
     addItem(new CheckedHibiscusAddressContextMenuItem(i18n.tr("Löschen..."), new DBObjectDelete(),"user-trash-full.png"));
     addItem(ContextMenuItem.SEPARATOR);
-    addItem(new CheckedSingleContextMenuItem(i18n.tr("Neue Überweisung..."),new UeberweisungNew(),"stock_next.png"));
-    addItem(new CheckedSingleContextMenuItem(i18n.tr("Neue Lastschrift..."),new LastschriftNew(),"stock_previous.png"));
-    addItem(new CheckedSingleContextMenuItem(i18n.tr("Neue SEPA-Überweisung..."),new AuslandsUeberweisungNew(),"internet-web-browser.png"));
-    addItem(new CheckedSingleContextMenuItem(i18n.tr("Neuer Dauerauftrag..."),new DauerauftragNew(),"stock_form-time-field.png"));
+    addItem(new CheckedSingleContextMenuItem(i18n.tr("Neue Überweisung..."),new AuslandsUeberweisungNew(),"stock_next.png"));
+    addItem(new CheckedSingleContextMenuItem(i18n.tr("Neue Lastschrift..."),new SepaLastschriftNew(),"stock_previous.png"));
+    addItem(new CheckedSingleContextMenuItem(i18n.tr("Neuer Dauerauftrag..."),new SepaDauerauftragNew(),"stock_form-time-field.png"));
     addItem(ContextMenuItem.SEPARATOR);
     addItem(new CheckedContextMenuItem(i18n.tr("Exportieren..."),new EmpfaengerExport(),"document-save.png"));
     addItem(new ContextMenuItem(i18n.tr("Importieren..."),new EmpfaengerImport(),"document-open.png"));
+    addItem(ContextMenuItem.SEPARATOR);
+    addItem(new CheckedHibiscusAddressContextMenuItem(i18n.tr("Nach SEPA konvertieren..."), new SepaConvertAddress(),"internet-web-browser.png"));
     
     // Wir geben das Context-Menu jetzt noch zur Erweiterung frei.
     ExtensionRegistry.extend(this);

@@ -1,16 +1,12 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/rmi/AuslandsUeberweisung.java,v $
- * $Revision: 1.2 $
- * $Date: 2009/10/20 23:12:58 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
 package de.willuhn.jameica.hbci.rmi;
+
+import java.rmi.RemoteException;
 
 
 
@@ -18,18 +14,33 @@ package de.willuhn.jameica.hbci.rmi;
 /**
  * Bildet eine Auslands-Ueberweisung ab.
  */
-public interface AuslandsUeberweisung extends BaseUeberweisung, Duplicatable
+public interface AuslandsUeberweisung extends BaseUeberweisung, Duplicatable, SepaPayment, SepaBooking
 {
+  /**
+   * Prueft, ob es sich um einen bankseitige Termin-Ueberweisung handelt.
+   * @return true, wenn es eine bankseitige Termin-Ueberweisung ist.
+   * @throws RemoteException
+   */
+  public boolean isTerminUeberweisung() throws RemoteException;
+  
+  /**
+   * Legt fest, ob es sich um eine bankseitige Termin-Ueberweisung handelt.
+   * @param termin true, wenn es eine bankseitige Terminueberweisung sein soll.
+   * @throws RemoteException
+   */
+  public void setTerminUeberweisung(boolean termin) throws RemoteException;
+  
+  /**
+   * Prueft, ob es sich um einen bankinterne Umbuchung handelt.
+   * @return true, wenn es eine bankinterne Umbuchung ist.
+   * @throws RemoteException
+   */
+  public boolean isUmbuchung() throws RemoteException;
+  
+  /**
+   * Legt fest, ob es sich um eine bankinterne Umbuchung handelt.
+   * @param b true, wenn es eine bankinterne Umbuchung sein soll.
+   * @throws RemoteException
+   */
+  public void setUmbuchung(boolean b) throws RemoteException;
 }
-
-
-/**********************************************************************
- * $Log: AuslandsUeberweisung.java,v $
- * Revision 1.2  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.1  2009/02/17 00:00:02  willuhn
- * @N BUGZILLA 159 - Erster Code fuer Auslands-Ueberweisungen
- *
- **********************************************************************/

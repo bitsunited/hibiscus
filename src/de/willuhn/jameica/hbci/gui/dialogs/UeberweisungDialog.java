@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/dialogs/UeberweisungDialog.java,v $
- * $Revision: 1.18 $
- * $Date: 2011/06/24 07:55:41 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -14,7 +8,6 @@ package de.willuhn.jameica.hbci.gui.dialogs;
 
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.widgets.Composite;
-import org.kapott.hbci.manager.HBCIUtils;
 
 import de.willuhn.jameica.gui.input.Input;
 import de.willuhn.jameica.gui.input.LabelInput;
@@ -22,6 +15,7 @@ import de.willuhn.jameica.gui.util.Color;
 import de.willuhn.jameica.gui.util.Container;
 import de.willuhn.jameica.gui.util.SimpleContainer;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.rmi.Ueberweisung;
 import de.willuhn.jameica.hbci.server.VerwendungszweckUtil;
 
@@ -59,7 +53,7 @@ public class UeberweisungDialog extends AbstractExecuteDialog
 		group.addLabelPair(i18n.tr("Name des Empfänger"),empfName);
 
 		Input empfKto = new LabelInput(ueb.getGegenkontoNummer());
-		empfKto.setComment(ueb.getGegenkontoBLZ() + "/" + HBCIUtils.getNameForBLZ(ueb.getGegenkontoBLZ()));
+		empfKto.setComment(ueb.getGegenkontoBLZ() + "/" + HBCIProperties.getNameForBank(ueb.getGegenkontoBLZ()));
 		group.addLabelPair(i18n.tr("Konto des Empfängers"),empfKto);
 
     LabelInput betrag = new LabelInput(HBCI.DECIMALFORMAT.format(ueb.getBetrag()) + " " + ueb.getKonto().getWaehrung());
@@ -69,29 +63,14 @@ public class UeberweisungDialog extends AbstractExecuteDialog
     if (ueb.isTerminUeberweisung())
     {
       Input termin = new LabelInput(HBCI.DATEFORMAT.format(ueb.getTermin()));
-      group.addLabelPair(i18n.tr("Fällig am"),termin);
+      group.addLabelPair(i18n.tr("Erinnerungstermin"),termin);
     }
 
     group.addHeadline(i18n.tr("Verwendungszweck"));
     group.addText(VerwendungszweckUtil.toString(ueb,"\n"),false);
-
-    group.addText(i18n.tr("Sind Sie sicher, daß Sie den Auftrag jetzt ausführen wollen?") + "\n",true);
 
     super.paint(parent);
     getShell().setMinimumSize(getShell().computeSize(SWT.DEFAULT,SWT.DEFAULT));
   }
 
 }
-
-
-/**********************************************************************
- * $Log: UeberweisungDialog.java,v $
- * Revision 1.18  2011/06/24 07:55:41  willuhn
- * @C Bei Hibiscus-verwalteten Terminen besser "Fällig am" verwenden - ist nicht so missverstaendlich - der User denkt sonst ggf. es sei ein bankseitig terminierter Auftrag
- *
- * Revision 1.17  2011-05-11 10:05:23  willuhn
- * @N Bestaetigungsdialoge ueberarbeitet (Buttons mit Icons, Verwendungszweck-Anzeige via VerwendungszweckUtil, keine Labelgroups mehr, gemeinsame Basis-Klasse)
- *
- * Revision 1.16  2010-10-05 21:57:21  willuhn
- * *** empty log message ***
- **********************************************************************/

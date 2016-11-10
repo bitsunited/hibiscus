@@ -13,27 +13,38 @@
 package de.willuhn.jameica.hbci.gui.menus;
 
 import java.rmi.RemoteException;
+import java.util.ArrayList;
+import java.util.List;
 
+import de.willuhn.datasource.rmi.DBIterator;
+import de.willuhn.datasource.rmi.DBService;
 import de.willuhn.jameica.gui.Action;
 import de.willuhn.jameica.gui.extension.Extendable;
 import de.willuhn.jameica.gui.extension.ExtensionRegistry;
 import de.willuhn.jameica.gui.internal.action.Print;
 import de.willuhn.jameica.gui.parts.CheckedContextMenuItem;
+import de.willuhn.jameica.gui.parts.CheckedSingleContextMenuItem;
 import de.willuhn.jameica.gui.parts.ContextMenu;
 import de.willuhn.jameica.gui.parts.ContextMenuItem;
+import de.willuhn.jameica.gui.util.SWTUtil;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungNew;
 import de.willuhn.jameica.hbci.gui.action.DBObjectDelete;
 import de.willuhn.jameica.hbci.gui.action.EmpfaengerAdd;
 import de.willuhn.jameica.hbci.gui.action.FlaggableChange;
-import de.willuhn.jameica.hbci.gui.action.UeberweisungNew;
 import de.willuhn.jameica.hbci.gui.action.UmsatzAssign;
 import de.willuhn.jameica.hbci.gui.action.UmsatzDetail;
+import de.willuhn.jameica.hbci.gui.action.UmsatzDetailEdit;
 import de.willuhn.jameica.hbci.gui.action.UmsatzExport;
 import de.willuhn.jameica.hbci.gui.action.UmsatzImport;
+import de.willuhn.jameica.hbci.gui.action.UmsatzMarkChecked;
+import de.willuhn.jameica.hbci.gui.action.UmsatzTypNew;
 import de.willuhn.jameica.hbci.io.print.PrintSupportUmsatzList;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
+import de.willuhn.jameica.hbci.rmi.UmsatzTyp;
+import de.willuhn.jameica.hbci.server.UmsatzTreeNode;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
@@ -46,7 +57,7 @@ import de.willuhn.util.I18N;
 public class UmsatzList extends ContextMenu implements Extendable
 {
 
-	private I18N i18n;
+	private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
 
   /**
    * Erzeugt ein Kontext-Menu fuer eine Liste von Umsaetzen.
@@ -62,18 +73,14 @@ public class UmsatzList extends ContextMenu implements Extendable
 	 */
 	public UmsatzList(final Konto konto)
 	{
-		i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
-
 		addItem(new OpenItem());
-    addItem(new UmsatzItem(i18n.tr("Löschen..."), new DBObjectDelete(),"user-trash-full.png"));
     addItem(ContextMenuItem.SEPARATOR);
     addItem(new UmsatzItem(i18n.tr("In Adressbuch übernehmen"),new EmpfaengerAdd(),"contact-new.png"));
-    addItem(new UmsatzItem(i18n.tr("Als neue Überweisung anlegen..."),new UeberweisungNew(),"stock_next.png"));
-    addItem(new UmsatzItem(i18n.tr("Als neue SEPA-Überweisung anlegen..."),new AuslandsUeberweisungNew(),"internet-web-browser.png"));
+    addItem(new UmsatzItem(i18n.tr("Als neue Überweisung anlegen..."),new AuslandsUeberweisungNew(),"stock_next.png"));
     addItem(ContextMenuItem.SEPARATOR);
-    addItem(new UmsatzBookedItem(i18n.tr("Kategorie zuordnen..."),new UmsatzAssign(),"x-office-spreadsheet.png"));
-    addItem(new UmsatzBookedItem(i18n.tr("als \"geprüft\" markieren..."),new FlaggableChange(Umsatz.FLAG_CHECKED,true),"emblem-default.png"));
-    addItem(new UmsatzBookedItem(i18n.tr("als \"ungeprüft\" markieren..."),new FlaggableChange(Umsatz.FLAG_CHECKED,false),"edit-undo.png"));
+    addItem(new UmsatzBookedItem(i18n.tr("als \"geprüft\" markieren..."),new UmsatzMarkChecked(Umsatz.FLAG_CHECKED,true),"emblem-default.png","ALT+G"));
+    addItem(new UmsatzBookedItem(i18n.tr("als \"ungeprüft\" markieren..."),new FlaggableChange(Umsatz.FLAG_CHECKED,false),"edit-undo.png","CTRL+ALT+G"));
+    addReverseBookItem();
     addItem(ContextMenuItem.SEPARATOR);
     addItem(new UmsatzItem(i18n.tr("Drucken..."),new Action() {
       public void handleAction(Object context) throws ApplicationException
@@ -81,7 +88,7 @@ public class UmsatzList extends ContextMenu implements Extendable
         new Print().handleAction(new PrintSupportUmsatzList(context));
       }
     },"document-print.png"));
-    addItem(new UmsatzItem(i18n.tr("Exportieren..."),new UmsatzExport(),"document-save.png"));
+    addItem(new UmsatzOrGroupItem(i18n.tr("Exportieren..."),new UmsatzExport(),"document-save.png"));
     addItem(new ContextMenuItem(i18n.tr("Importieren..."),new UmsatzImport()
     {
 
@@ -93,11 +100,142 @@ public class UmsatzList extends ContextMenu implements Extendable
     }
     ,"document-open.png"));
     
+    addItem(ContextMenuItem.SEPARATOR);
+    addItem(new UmsatzItem(i18n.tr("Löschen..."), new DBObjectDelete(),"user-trash-full.png"));
+    addItem(ContextMenuItem.SEPARATOR);
+    
+    // BUGZILLA 512 / 1115
+    addItem(new UmsatzBookedItem(i18n.tr("Kategorie zuordnen..."),new UmsatzAssign(),"x-office-spreadsheet.png","ALT+K"));
+    addItem(new CheckedSingleContextMenuItem(i18n.tr("Kategorie bearbeiten..."),new UmsatzTypNew(),"document-open.png")
+    {
+      public boolean isEnabledFor(Object o)
+      {
+        // Wen es ein Umsatz ist, dann nur aktivieren, wenn der Umsatz eine Kategorie hat
+        if (o instanceof Umsatz)
+        {
+          try
+          {
+            return ((Umsatz)o).getUmsatzTyp() != null;
+          }
+          catch (RemoteException re)
+          {
+            Logger.error("unable to check umsatztyp",re);
+          }
+        }
+        
+        // Ansonsten wie gehabt
+        return super.isEnabledFor(o);
+      }
+      
+    });
+    addItem(new ContextMenuItem(i18n.tr("Neue Kategorie anlegen..."),new Action()
+    {
+      public void handleAction(Object context) throws ApplicationException
+      {
+        // BUGZILLA 926
+        UmsatzTyp ut = null;
+        if (context != null)
+        {
+          try
+          {
+            if (context instanceof Umsatz)
+            {
+              Umsatz u = (Umsatz) context;
+              ut = (UmsatzTyp) Settings.getDBService().createObject(UmsatzTyp.class,null);
+              ut.setName(u.getGegenkontoName());
+              ut.setPattern(u.getZweck());
+            }
+            else if (context instanceof UmsatzTyp)
+            {
+              ut = (UmsatzTyp) Settings.getDBService().createObject(UmsatzTyp.class,null);
+              ut.setParent((UmsatzTyp) context);
+            }
+            else if (context instanceof UmsatzTreeNode)
+            {
+              ut = (UmsatzTyp) Settings.getDBService().createObject(UmsatzTyp.class,null);
+              ut.setParent(((UmsatzTreeNode) context).getUmsatzTyp());
+            }
+          }
+          catch (Exception e)
+          {
+            Logger.error("error while preparing category",e);
+          }
+        }
+        new UmsatzTypNew().handleAction(ut);
+      }
+    },"text-x-generic.png"));
+
     // Wir geben das Context-Menu jetzt noch zur Erweiterung frei.
     ExtensionRegistry.extend(this);
 
 	}
-	
+
+	private void addReverseBookItem(){
+    try
+    {
+      final String icon="edit-copy.png";
+      DBService service = de.willuhn.jameica.hbci.Settings.getDBService();
+      DBIterator konten = service.createList(Konto.class);
+
+      final List<Konto> allOffline= new ArrayList<Konto>();
+      while(konten.hasNext()){
+        Konto next = (Konto)konten.next();
+        if(next.hasFlag(Konto.FLAG_OFFLINE)){
+          allOffline.add(next);
+        }
+      }
+      switch(allOffline.size()){
+      case 0:break;
+      case 1: {
+        final Konto toBookTo=allOffline.get(0);
+        addItem(new UmsatzItem(i18n.tr("Gegenbuchung erzeugen auf")+": "+toBookTo.getName(),new UmsatzDetailEdit().asReverse(toBookTo), icon){
+          @Override
+          public boolean isEnabledFor(Object o)
+          {
+            return super.isEnabledFor(o) && isEnabledReverseBooking(toBookTo, o);
+          }
+        });
+        break;
+      }
+      default:
+      {
+        addMenu(new ContextMenu(){
+          {
+            setText(i18n.tr("Gegenbuchung erzeugen auf")+" ...");
+            setImage(SWTUtil.getImage(icon));
+            for (final Konto toBookTo : allOffline)
+            {
+              addItem(new ContextMenuItem(toBookTo.getName(), new UmsatzDetailEdit().asReverse(toBookTo)){
+                public boolean isEnabledFor(Object o) {
+                  return super.isEnabledFor(o) && isEnabledReverseBooking(toBookTo, o);
+                }
+              });
+            }
+          }
+        });
+      }
+      }
+    } catch (RemoteException e)
+    {
+      Logger.error("error while creating reverse booking context menu entry",e);
+    }
+	}
+
+  private boolean isEnabledReverseBooking(Konto toBookTo, Object context){
+    if(context instanceof Umsatz){
+      try
+      {
+        Konto origKonto = ((Umsatz)context).getKonto();
+        return !origKonto.equals(toBookTo);
+      } catch (RemoteException e)
+      {
+        Logger.error("error while creating reverse booking context menu entry",e);
+      }
+      
+    }
+    return false;
+  }
+
   /**
    * Pruefen, ob es sich wirklich um einen Umsatz handelt.
    */
@@ -123,7 +261,50 @@ public class UmsatzList extends ContextMenu implements Extendable
         return super.isEnabledFor(o);
       return false;
     }
-    
+  }
+  
+  /**
+   * Akzeptiert Umsaetze oder eine einzelne Umsatzgruppe.
+   * Die Gruppe allerdings nur, wenn sie direkt Umsaetze enthaelt.
+   * Indirekte Umsaetze ueber Unterkategorien sind nicht moeglich.
+   */
+  private class UmsatzOrGroupItem extends CheckedContextMenuItem
+  {
+    /**
+     * ct.
+     * @param text Label.
+     * @param action Action.
+     * @param icon optionales Icon.
+     */
+    public UmsatzOrGroupItem(String text, Action action, String icon)
+    {
+      super(text,action,icon);
+    }
+
+    /**
+     * @see de.willuhn.jameica.gui.parts.CheckedContextMenuItem#isEnabledFor(java.lang.Object)
+     */
+    public boolean isEnabledFor(Object o)
+    {
+      if ((o instanceof Umsatz) || (o instanceof Umsatz[]))
+        return super.isEnabledFor(o);
+      
+      if (o instanceof UmsatzTreeNode)
+      {
+        UmsatzTreeNode node = (UmsatzTreeNode) o;
+        return (node.getUmsaetze().size() > 0 || node.getSubGroups().size() > 0) && super.isEnabledFor(o);
+      }
+      if (o instanceof UmsatzTreeNode[])
+      {
+        for (UmsatzTreeNode node:(UmsatzTreeNode[])o)
+        {
+          if (node.getUmsaetze().size() > 0 || node.getSubGroups().size() > 0)
+            return super.isEnabledFor(o);
+        }
+        return false;
+      }
+      return false;
+    }
   }
 
   /**
@@ -164,11 +345,14 @@ public class UmsatzList extends ContextMenu implements Extendable
      * @param text Label.
      * @param action Action.
      * @param icon optionales Icon.
+     * @param shortcut Shortcut.
      */
-    public UmsatzBookedItem(String text, Action action, String icon)
+    public UmsatzBookedItem(String text, Action action, String icon, String shortcut)
     {
       super(text,action,icon);
+      this.setShortcut(shortcut);
     }
+    
     /**
      * @see de.willuhn.jameica.gui.parts.ContextMenuItem#isEnabledFor(java.lang.Object)
      */
@@ -203,132 +387,3 @@ public class UmsatzList extends ContextMenu implements Extendable
   
 
 }
-
-
-/**********************************************************************
- * $Log: UmsatzList.java,v $
- * Revision 1.38  2011/05/06 09:03:54  willuhn
- * @C Labels geaendert
- *
- * Revision 1.37  2011-04-13 17:35:46  willuhn
- * @N Druck-Support fuer Kontoauszuege fehlte noch
- *
- * Revision 1.36  2011-04-13 08:48:01  willuhn
- * @N Loeschen von Vormerkbuchungen zulassen
- *
- * Revision 1.35  2010/03/16 00:44:18  willuhn
- * @N Komplettes Redesign des CSV-Imports.
- *   - Kann nun erheblich einfacher auch fuer andere Datentypen (z.Bsp.Ueberweisungen) verwendet werden
- *   - Fehlertoleranter
- *   - Mehrfachzuordnung von Spalten (z.Bsp. bei erweitertem Verwendungszweck) moeglich
- *   - modulare Deserialisierung der Werte
- *   - CSV-Exports von Hibiscus koennen nun 1:1 auch wieder importiert werden (Import-Preset identisch mit Export-Format)
- *   - Import-Preset wird nun im XML-Format nach ~/.jameica/hibiscus/csv serialisiert. Damit wird es kuenftig moeglich sein,
- *     CSV-Import-Profile vorzukonfigurieren und anschliessend zu exportieren, um sie mit anderen Usern teilen zu koennen
- *
- * Revision 1.34  2009/09/15 00:23:35  willuhn
- * @N BUGZILLA 745
- *
- * Revision 1.33  2009/02/24 22:42:33  willuhn
- * @N Da vorgemerkte Umsaetze jetzt komplett geloescht werden, wenn sie neu abgerufen werden, duerfen sie auch nicht mehr geaendert werden (also auch keine Kategorie und kein Kommentar)
- *
- * Revision 1.32  2009/02/12 18:37:18  willuhn
- * @N Erster Code fuer vorgemerkte Umsaetze
- *
- * Revision 1.31  2009/02/04 23:06:24  willuhn
- * @N BUGZILLA 308 - Umsaetze als "geprueft" markieren
- *
- * Revision 1.30  2008/12/19 12:16:05  willuhn
- * @N Mehr Icons
- * @C Reihenfolge der Contextmenu-Eintraege vereinheitlicht
- *
- * Revision 1.29  2007/12/04 23:59:00  willuhn
- * @N Bug 512
- *
- * Revision 1.28  2007/03/22 22:36:42  willuhn
- * @N Contextmenu in Trees
- * @C Kategorie-Baum in separates TreePart ausgelagert
- *
- * Revision 1.27  2007/03/16 14:40:02  willuhn
- * @C Redesign ImportMessage
- * @N Aktualisierung der Umsatztabelle nach Kategorie-Zuordnung
- *
- * Revision 1.24  2007/02/21 11:58:52  willuhn
- * @N Bug 315
- *
- * Revision 1.23  2006/11/30 23:48:40  willuhn
- * @N Erste Version der Umsatz-Kategorien drin
- *
- * Revision 1.22  2006/10/09 23:49:39  willuhn
- * @N extendable
- *
- * Revision 1.21  2006/10/05 16:42:28  willuhn
- * @N CSV-Import/Export fuer Adressen
- *
- * Revision 1.20  2006/08/02 17:49:44  willuhn
- * @B Bug 255
- * @N Erkennung des Kontos beim Import von Umsaetzen aus dem Kontextmenu heraus
- *
- * Revision 1.19  2006/06/08 17:40:59  willuhn
- * @N Vorbereitungen fuer DTAUS-Import von Sammellastschriften und Umsaetzen
- *
- * Revision 1.18  2006/06/06 22:41:26  willuhn
- * @N Generische Loesch-Action fuer DBObjects (DBObjectDelete)
- * @N Live-Aktualisierung der Tabelle mit den importierten Ueberweisungen
- * @B Korrekte Berechnung des Fortschrittsbalken bei Import
- *
- * Revision 1.17  2006/04/20 08:44:21  willuhn
- * @C s/Childs/Children/
- *
- * Revision 1.16  2006/04/04 21:57:57  willuhn
- * *** empty log message ***
- *
- * Revision 1.15  2006/04/04 06:47:44  willuhn
- * *** empty log message ***
- *
- * Revision 1.14  2006/01/23 12:16:57  willuhn
- * @N Update auf HBCI4Java 2.5.0-rc5
- *
- * Revision 1.13  2006/01/18 00:51:01  willuhn
- * @B bug 65
- *
- * Revision 1.12  2005/08/01 23:27:42  web0
- * *** empty log message ***
- *
- * Revision 1.11  2005/06/07 22:41:09  web0
- * @B bug 70
- *
- * Revision 1.10  2005/06/02 22:57:34  web0
- * @N Export von Konto-Umsaetzen
- *
- * Revision 1.9  2005/05/30 22:55:27  web0
- * *** empty log message ***
- *
- * Revision 1.8  2005/05/09 12:24:20  web0
- * @N Changelog
- * @N Support fuer Mehrfachmarkierungen
- * @N Mehere Adressen en bloc aus Umsatzliste uebernehmen
- *
- * Revision 1.7  2005/04/16 13:34:01  web0
- * *** empty log message ***
- *
- * Revision 1.6  2005/03/01 22:05:13  web0
- * @B fixed help pages
- *
- * Revision 1.5  2004/10/18 23:38:17  willuhn
- * @C Refactoring
- * @C Aufloesung der Listener und Ersatz gegen Actions
- *
- * Revision 1.4  2004/08/18 23:13:51  willuhn
- * @D Javadoc
- *
- * Revision 1.3  2004/07/25 17:15:06  willuhn
- * @C PluginLoader is no longer static
- *
- * Revision 1.2  2004/07/21 23:54:31  willuhn
- * *** empty log message ***
- *
- * Revision 1.1  2004/07/20 21:48:00  willuhn
- * @N ContextMenus
- *
- **********************************************************************/

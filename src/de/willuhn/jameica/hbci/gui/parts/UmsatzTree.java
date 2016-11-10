@@ -1,12 +1,6 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/gui/parts/UmsatzTree.java,v $
- * $Revision: 1.9 $
- * $Date: 2012/04/23 21:03:41 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by Heiner Jostkleigrewe
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
@@ -23,36 +17,36 @@ import java.util.Map;
 
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.RGB;
+import org.eclipse.swt.widgets.Listener;
 import org.eclipse.swt.widgets.TreeItem;
 
+import de.willuhn.datasource.BeanUtil;
 import de.willuhn.datasource.GenericIterator;
 import de.willuhn.datasource.GenericObject;
 import de.willuhn.datasource.pseudo.PseudoIterator;
-import de.willuhn.jameica.gui.Action;
 import de.willuhn.jameica.gui.GUI;
 import de.willuhn.jameica.gui.formatter.CurrencyFormatter;
 import de.willuhn.jameica.gui.formatter.DateFormatter;
 import de.willuhn.jameica.gui.formatter.TreeFormatter;
-import de.willuhn.jameica.gui.parts.CheckedContextMenuItem;
-import de.willuhn.jameica.gui.parts.ContextMenu;
-import de.willuhn.jameica.gui.parts.ContextMenuItem;
 import de.willuhn.jameica.gui.parts.TreePart;
+import de.willuhn.jameica.gui.parts.table.Feature;
+import de.willuhn.jameica.gui.parts.table.Feature.Context;
+import de.willuhn.jameica.gui.parts.table.Feature.Event;
+import de.willuhn.jameica.gui.parts.table.FeatureSummary;
 import de.willuhn.jameica.gui.util.Font;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
-import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.gui.ColorUtil;
 import de.willuhn.jameica.hbci.gui.action.UmsatzDetail;
-import de.willuhn.jameica.hbci.gui.action.UmsatzTypNew;
 import de.willuhn.jameica.hbci.gui.menus.UmsatzList;
 import de.willuhn.jameica.hbci.messaging.NeueUmsaetze;
 import de.willuhn.jameica.hbci.rmi.Umsatz;
 import de.willuhn.jameica.hbci.rmi.UmsatzTyp;
 import de.willuhn.jameica.hbci.server.UmsatzTreeNode;
+import de.willuhn.jameica.hbci.server.VerwendungszweckUtil.Tag;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
-import de.willuhn.util.ApplicationException;
 import de.willuhn.util.I18N;
 
 /**
@@ -60,8 +54,10 @@ import de.willuhn.util.I18N;
  */
 public class UmsatzTree extends TreePart
 {
+  private final static de.willuhn.jameica.system.Settings settings = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getSettings();
   private final static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
   private static Hashtable<String,Color> colorCache = new Hashtable<String,Color>();
+  private boolean summary = false;
   
   /**
    * ct.
@@ -71,6 +67,24 @@ public class UmsatzTree extends TreePart
   public UmsatzTree(GenericIterator list) throws RemoteException
   {
     super(list, new UmsatzDetail());
+    
+    try
+    {
+      BeanUtil.invoke(this,"addFeature",new Object[]{"de.willuhn.jameica.gui.parts.table.FeatureShortcut"});
+    }
+    catch (Exception e)
+    {
+      Logger.warn("Shortcut feature not available in this jameica version");
+    }
+    try
+    {
+      BeanUtil.invoke(this,"addFeature",new Object[]{"de.willuhn.jameica.gui.parts.table.FeatureSummary"});
+      this.summary = true;
+    }
+    catch (Exception e)
+    {
+      Logger.warn("Summary feature not available in this jameica version");
+    }
     
     this.setRememberColWidths(true);
     this.setRememberOrder(true);
@@ -138,38 +152,26 @@ public class UmsatzTree extends TreePart
     
     });
     this.addColumn(i18n.tr("Bezeichnung"),      "name");
-    this.addColumn(i18n.tr("Verwendungszweck"), "mergedzweck");
+    if (settings.getBoolean("usage.list.all",false))
+      addColumn(i18n.tr("Verwendungszweck"),    "mergedzweck");
+    else
+      addColumn(i18n.tr("Verwendungszweck"),    Tag.SVWZ.name());
     this.addColumn(i18n.tr("Datum"),            "datum_pseudo", new DateFormatter(HBCI.DATEFORMAT));
     this.addColumn(i18n.tr("Betrag"),           "betrag",new CurrencyFormatter(HBCIProperties.CURRENCY_DEFAULT_DE,HBCI.DECIMALFORMAT));
+    this.addColumn(i18n.tr("Notiz"),            "kommentar");
 
-    // BUGZILLA 512 / 1115
-    ContextMenu menu = new UmsatzList();
-    menu.addItem(ContextMenuItem.SEPARATOR);
-    menu.addItem(new GroupItem(i18n.tr("Kategorie bearbeiten..."),new UmsatzTypNew()));
-    menu.addItem(new ContextMenuItem(i18n.tr("Neue Kategorie anlegen..."),new Action()
+    this.setContextMenu(new UmsatzList());
+    
+    if (this.summary)
     {
-      public void handleAction(Object context) throws ApplicationException
-      {
-        // BUGZILLA 926
-        UmsatzTyp ut = null;
-        if (context != null && (context instanceof Umsatz))
+      this.addSelectionListener(new Listener() {
+        @Override
+        public void handleEvent(org.eclipse.swt.widgets.Event event)
         {
-          try
-          {
-            Umsatz u = (Umsatz) context;
-            ut = (UmsatzTyp) Settings.getDBService().createObject(UmsatzTyp.class,null);
-            ut.setName(u.getGegenkontoName());
-            ut.setPattern(u.getZweck());
-          }
-          catch (Exception e)
-          {
-            Logger.error("error while preparing category",e);
-          }
+          featureEvent(Feature.Event.REFRESH,null);
         }
-        new UmsatzTypNew().handleAction(ut);
-      }
-    }));
-    this.setContextMenu(menu);
+      });
+    }
   }
 
   
@@ -251,61 +253,63 @@ public class UmsatzTree extends TreePart
     
     return node;
   }
-
+  
   /**
-   * Menu-Item fuer Umsatzgruppen.
+   * @see de.willuhn.jameica.gui.parts.TreePart#createFeatureEventContext(de.willuhn.jameica.gui.parts.table.Feature.Event, java.lang.Object)
    */
-  private class GroupItem extends CheckedContextMenuItem
+  @Override
+  protected Context createFeatureEventContext(Event e, Object data)
   {
-    /**
-     * ct.
-     * @param name
-     * @param action
-     */
-    private GroupItem(String name, Action action)
+    Context ctx = super.createFeatureEventContext(e, data);
+    
+    if (this.hasEvent(FeatureSummary.class,e))
+      ctx.addon.put(FeatureSummary.CTX_KEY_TEXT,this.getSummary());
+    
+    return ctx;
+  }
+  
+  /**
+   * Liefert den Summen-Text.
+   * @return der Summen-Text.
+   */
+  private String getSummary()
+  {
+    try
     {
-      super(name,action);
-    }
+      Object o = this.getSelection();
+      int size = this.size();
 
-    /**
-     * @see de.willuhn.jameica.gui.parts.CheckedContextMenuItem#isEnabledFor(java.lang.Object)
-     */
-    public boolean isEnabledFor(Object o)
-    {
-      if (o != null && (o instanceof UmsatzTreeNode))
-        return super.isEnabledFor(o);
-      return false;
+      // nichts markiert oder nur einer, dann liefern wir nur die Anzahl der Umsaetze
+      if (o == null || size == 1 || !(o instanceof Umsatz[]))
+      {
+        if (size == 1)
+          return i18n.tr("1 Umsatz");
+        else
+          return i18n.tr("{0} Umsätze",Integer.toString(size));
+      }
+      
+      // Andernfalls berechnen wir die Summe
+      double sum = 0.0d;
+      Umsatz[] list = (Umsatz[]) o;
+      String curr = null;
+      for (Umsatz u:list)
+      {
+        if (curr == null)
+          curr = u.getKonto().getWaehrung();
+        sum += u.getBetrag();
+      }
+      if (curr == null)
+        curr = HBCIProperties.CURRENCY_DEFAULT_DE;
+
+      return i18n.tr("{0} Umsätze, {1} markiert, Summe: {2} {3}",new String[]{Integer.toString(size),
+                                                                              Integer.toString(list.length),
+                                                                              HBCI.DECIMALFORMAT.format(sum),
+                                                                              curr});
     }
+    catch (Throwable t)
+    {
+      Logger.error("error while updating summary",t);
+    }
+    return null;
   }
 }
-
-/*******************************************************************************
- * $Log: UmsatzTree.java,v $
- * Revision 1.9  2012/04/23 21:03:41  willuhn
- * @N BUGZILLA 1227
- *
- * Revision 1.8  2011-08-08 07:37:27  willuhn
- * @B BUGZILLA 1115
- *
- * Revision 1.7  2011-04-29 07:41:56  willuhn
- * @N BUGZILLA 781
- *
- * Revision 1.6  2011-04-26 12:15:51  willuhn
- * @B Potentielle Bugs gemaess Code-Checker
- *
- * Revision 1.5  2011-01-05 11:20:27  willuhn
- * *** empty log message ***
- *
- * Revision 1.4  2011-01-05 11:19:10  willuhn
- * @N Fettdruck (bei neuen Umsaetzen) und grauer Text (bei Vormerkbuchungen) jetzt auch in "Umsaetze nach Kategorien"
- * @N NeueUmsaetze.isNew(Umsatz) zur Pruefung, ob ein Umsatz neu ist
- *
- * Revision 1.3  2010-10-10 21:57:19  willuhn
- * @N BUGZILLA 926
- *
- * Revision 1.2  2010/05/30 23:29:31  willuhn
- * @N Alle Verwendungszweckzeilen in Umsatzlist und -tree anzeigen (BUGZILLA 782)
- *
- * Revision 1.1  2010/03/05 15:24:53  willuhn
- * @N BUGZILLA 686
- ******************************************************************************/

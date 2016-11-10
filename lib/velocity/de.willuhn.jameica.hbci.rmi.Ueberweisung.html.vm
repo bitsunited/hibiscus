@@ -171,7 +171,7 @@
         <th>Gegenkonto</th>
         <th style="text-align:right">Betrag</th>
         <th>Verwendungszweck</th>
-        <th>Status</th>
+        <th>Ausgef&uuml;hrt</th>
       </tr>
       #foreach($t in $objects)
         <tr class="ausgefuehrt_$t.ausgefuehrt()">
@@ -181,7 +181,7 @@
           <td style="text-align:right">$!decimalformat.format($t.betrag) $!t.konto.waehrung</td>
           <td>
             $!t.zweck
-            #if($!t.zweck != '')
+            #if($!t.zweck2 != '')
               <br/>
               $!t.zweck2
             #end

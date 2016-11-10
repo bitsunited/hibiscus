@@ -1,21 +1,16 @@
 /**********************************************************************
- * $Source: /cvsroot/hibiscus/hibiscus/src/de/willuhn/jameica/hbci/passports/pintan/Controller.java,v $
- * $Revision: 1.12 $
- * $Date: 2012/03/13 21:48:33 $
- * $Author: willuhn $
- * $Locker:  $
- * $State: Exp $
  *
- * Copyright (c) by willuhn.webdesign
+ * Copyright (c) by Olaf Willuhn
  * All rights reserved
  *
  **********************************************************************/
 package de.willuhn.jameica.hbci.passports.pintan;
 
-import java.io.File;
 import java.rmi.RemoteException;
 import java.util.List;
+import java.util.Properties;
 
+import org.kapott.hbci.passport.AbstractHBCIPassport;
 import org.kapott.hbci.passport.HBCIPassport;
 
 import de.willuhn.jameica.gui.AbstractControl;
@@ -32,14 +27,16 @@ import de.willuhn.jameica.gui.parts.ContextMenu;
 import de.willuhn.jameica.gui.parts.ContextMenuItem;
 import de.willuhn.jameica.gui.parts.TablePart;
 import de.willuhn.jameica.hbci.HBCI;
+import de.willuhn.jameica.hbci.HBCIProperties;
+import de.willuhn.jameica.hbci.gui.action.PassportChange;
 import de.willuhn.jameica.hbci.gui.action.PassportTest;
 import de.willuhn.jameica.hbci.gui.dialogs.PassportPropertyDialog;
 import de.willuhn.jameica.hbci.gui.input.BLZInput;
 import de.willuhn.jameica.hbci.gui.input.HBCIVersionInput;
+import de.willuhn.jameica.hbci.passport.PassportChangeRequest;
 import de.willuhn.jameica.hbci.passports.pintan.rmi.PinTanConfig;
 import de.willuhn.jameica.hbci.passports.pintan.server.PassportHandleImpl;
 import de.willuhn.jameica.hbci.rmi.Konto;
-import de.willuhn.jameica.hbci.server.hbci.HBCIFactory;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.jameica.system.OperationCanceledException;
@@ -249,9 +246,8 @@ public class Controller extends AbstractControl
   {
     if (customerId != null)
       return customerId;
-    customerId = new TextInput(getConfig().getCustomerId());
+    customerId = new TextInput(getConfig().getCustomerId(),20);
     customerId.setName(i18n.tr("Kundenkennung"));
-    customerId.setEnabled(false);
     customerId.setMandatory(true);
     return customerId;
   }
@@ -265,9 +261,8 @@ public class Controller extends AbstractControl
   {
     if (userId != null)
       return userId;
-    userId = new TextInput(getConfig().getUserId());
+    userId = new TextInput(getConfig().getUserId(),20);
     userId.setName(i18n.tr("Benutzerkennung"));
-    userId.setEnabled(false);
     userId.setMandatory(true);
     return userId;
   }
@@ -314,7 +309,11 @@ public class Controller extends AbstractControl
   private HBCIPassport getHBCIPassport() throws RemoteException
   {
     if (this.passport == null)
-      this.passport = PinTanConfigFactory.load(new File(config.getFilename()));
+    {
+      // this.passport = PinTanConfigFactory.load(new File(config.getFilename()));
+      // Mit obiger Zeile haben wir den Passport doppelt geoeffnet. In der Config haben wir ja schon eine Instanz
+      this.passport = this.config.getPassport();
+    }
     return this.passport;
   }
 
@@ -431,7 +430,7 @@ public class Controller extends AbstractControl
       conf = PinTanConfigFactory.create();
       GUI.startView(Detail.class,conf);
       
-      GUI.getStatusBar().setSuccessText(i18n.tr("Konfiguration erfolgreich erstellt"));
+      GUI.getStatusBar().setSuccessText(i18n.tr("Konfiguration erfolgreich erstellt. Bitte klicken Sie \"Speichern\" zum Übernehmen."));
     }
     catch (ApplicationException e)
     {
@@ -441,7 +440,7 @@ public class Controller extends AbstractControl
     catch (Throwable t)
     {
       // Fehlertext nur anzeigen, wenn der Vorgang nicht durch den User abgebrochen wurde
-      if (HBCIFactory.getCause(t,OperationCanceledException.class) == null)
+      if (HBCIProperties.getCause(t,OperationCanceledException.class) == null)
       {
         Logger.error("error while creating config",t);
         GUI.getStatusBar().setErrorText(i18n.tr("Fehler beim Erstellen der Konfiguration"));
@@ -467,11 +466,33 @@ public class Controller extends AbstractControl
         konten = (Konto[]) checked.toArray(new Konto[checked.size()]);
       config.setKonten(konten);
       
+      String version = (String) getHBCIVersion().getValue();
       config.setFilterType((String) getFilterType().getValue());
       config.setBezeichnung((String) getBezeichnung().getValue());
       config.setShowTan(((Boolean)getShowTan().getValue()).booleanValue());
-			config.setHBCIVersion((String) getHBCIVersion().getValue());
+			config.setHBCIVersion(version);
 			config.setPort((Integer)getPort().getValue());
+			
+      AbstractHBCIPassport p = (AbstractHBCIPassport)config.getPassport();
+      PassportChangeRequest change = new PassportChangeRequest(p,(String)getCustomerId().getValue(),(String)getUserId().getValue());
+      new PassportChange().handleAction(change);
+      
+			if (getHBCIVersion().hasChanged())
+			{
+        // Das triggert beim naechsten Verbindungsaufbau
+        // HBCIHandler.<clinit>
+        // -> HBCIHandler.registerUser()
+        // -> HBCIUser.register()
+        // -> HBCIUser.updateUserData()
+        // -> HBCIUser.fetchSysId() - und das holt die BPD beim naechsten mal ueber einen nicht-anonymen Dialog
+			  Logger.info("hbci version has changed to \"" + version + "\" - set sysId to 0 to force BPD reload on next connect");
+			  Properties props = p.getBPD();
+			  if (props != null)
+			  {
+          props.remove("BPA.version");
+          p.syncSysId();
+			  }
+			}
 
 
       PinTanConfigFactory.store(config);
@@ -494,32 +515,3 @@ public class Controller extends AbstractControl
   }
 
 }
-
-
-/**********************************************************************
- * $Log: Controller.java,v $
- * Revision 1.12  2012/03/13 21:48:33  willuhn
- * @B BUGZILLA 1207
- *
- * Revision 1.11  2011/12/09 23:19:57  willuhn
- * @C Der Port muss konfigurierbar bleiben, weil er durch den AccountContainer-Dialog bei der Erstellung nicht abweichend von 443 vergeben werden kann (Ursache ist HBCI4Java - in HBCIPassportPinTan der Port hart auf 443 gesetzt. Mit dem Effekt, dass kein Callback mehr von HBCI4Java kommt und daher die Eingabe aus dem AccountContainer-Dialog ignoriert wird
- *
- * Revision 1.10  2011-06-17 08:49:18  willuhn
- * @N Contextmenu im Tree mit den Bank-Zugaengen
- * @N Loeschen von Bank-Zugaengen direkt im Tree
- *
- * Revision 1.9  2011-05-23 10:47:29  willuhn
- * @R BUGZILLA 62 - Speichern der verbrauchten TANs ausgebaut. Seit smsTAN/chipTAN gibt es zum einen ohnehin keine TAN-Listen mehr. Zum anderen kann das jetzt sogar Fehler ausloesen, wenn ueber eines der neuen TAN-Verfahren die gleiche TAN generiert wird, die frueher irgendwann schonmal zufaellig generiert wurde. TANs sind inzwischen fluechtige und werden dynamisch erzeugt. Daher ist es unsinnig, die zu speichern. Zumal es das Wallet sinnlos aufblaeht.
- *
- * Revision 1.8  2011-05-11 10:20:28  willuhn
- * @N OCE fangen
- *
- * Revision 1.7  2011-05-09 09:35:15  willuhn
- * @N BUGZILLA 827
- *
- * Revision 1.6  2011-04-29 11:38:57  willuhn
- * @N Konfiguration der HBCI-Medien ueberarbeitet. Es gibt nun direkt in der Navi einen Punkt "Bank-Zugaenge", in der alle Medien angezeigt werden.
- *
- * Revision 1.5  2011-04-28 07:34:43  willuhn
- * @R Summen-Zeile nicht mehr anzeigen - unnuetz
- **********************************************************************/

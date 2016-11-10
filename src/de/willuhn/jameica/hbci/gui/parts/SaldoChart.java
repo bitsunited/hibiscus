@@ -71,6 +71,7 @@ public class SaldoChart implements Part
   private Listener reloadListener = new ReloadListener();
   
   private LineChart chart         = null;
+  // private LineChart forecast      = null;
 
   /**
    * ct.
@@ -114,6 +115,7 @@ public class SaldoChart implements Part
 
     this.kontoauswahl = new KontoInput(null,KontoFilter.ALL);
     this.kontoauswahl.setRememberSelection("auswertungen.saldochart");
+    this.kontoauswahl.setSupportGroups(true);
     this.kontoauswahl.setPleaseChoose(i18n.tr("<Alle Konten>"));
     if (tiny)
       this.kontoauswahl.setComment(null); // Keinen Kommentar anzeigen
@@ -132,6 +134,7 @@ public class SaldoChart implements Part
       return this.range;
 
     this.range = new UmsatzDaysInput();
+    this.range.setRememberSelection("days.saldochart");
     this.range.addListener(new DelayedListener(300,this.reloadListener));
     return this.range;
   }
@@ -185,8 +188,27 @@ public class SaldoChart implements Part
       }
       
       this.chart = new LineChart();
-      this.reloadListener.handleEvent(null); // einmal initial ausloesen
-      chart.paint(parent);
+      
+//      if (this.tiny)
+//      {
+        this.reloadListener.handleEvent(null); // einmal initial ausloesen
+        chart.paint(parent);
+//      }
+//      else
+//      {
+//        this.forecast = new LineChart();
+//
+//        final TabFolder folder = new TabFolder(parent, SWT.NONE);
+//        folder.setLayoutData(new GridData(GridData.FILL_BOTH));
+//        
+//        TabGroup current = new TabGroup(folder,i18n.tr("Aktuell"),true,1);
+//        TabGroup forecast = new TabGroup(folder,i18n.tr("Prognose"),true,1);
+//
+//        this.reloadListener.handleEvent(null); // einmal initial ausloesen
+//        
+//        this.chart.paint(current.getComposite());
+//        this.forecast.paint(forecast.getComposite());
+//      }
     }
     catch (RemoteException re)
     {
@@ -204,7 +226,7 @@ public class SaldoChart implements Part
    */
   private class ReloadListener implements Listener
   {
-    private Konto kPrev = null;
+    private Object oPrev = null;
     private int startPrev = 0;
     
     /**
@@ -219,14 +241,17 @@ public class SaldoChart implements Part
       {
         int start = ((Integer)getRange().getValue()).intValue();
 
-        Konto k = konto;
-        if (k == null) // Das ist der Fall, wenn das Kontoauswahlfeld verfuegbar ist
-          k = (Konto) getKontoAuswahl().getValue();
+        Object o = konto;
+        if (o == null) // Das ist der Fall, wenn das Kontoauswahlfeld verfuegbar ist
+          o = getKontoAuswahl().getValue();
         
-        if (start == startPrev && k == kPrev)
+        if (start == startPrev && o == oPrev)
           return; // Auswahl nicht geaendert
           
         chart.removeAllData();
+        
+//        if (forecast != null)
+//          forecast.removeAllData();
 
         Date date = null;
 
@@ -234,11 +259,17 @@ public class SaldoChart implements Part
         {
           // Keine Anzahl von Tagen angegeben. Dann nehmen wir den
           // aeltesten gefundenen Umsatz als Beginn
-          String query = "select min(datum) from umsatz";
-          if (k != null)
-            query += " where konto_id = " + k.getID();
+          String   query  = "select min(datum) from umsatz";
+          Object[] params = null;
+          if (o != null && (o instanceof Konto))
+            query += " where konto_id = " + ((Konto) o).getID();
+          else if (o != null && (o instanceof String))
+          {
+            query += " where konto_id in (select id from konto where kategorie = ?)";
+            params = new String[]{(String) o};
+          }
           
-          date = (Date) Settings.getDBService().execute(query,null,new ResultSetExtractor() {
+          date = (Date) Settings.getDBService().execute(query,params,new ResultSetExtractor() {
             public Object extract(ResultSet rs) throws RemoteException, SQLException
             {
               if (!rs.next())
@@ -261,9 +292,30 @@ public class SaldoChart implements Part
 
         chart.setTitle(i18n.tr("Saldo-Verlauf seit {0}",HBCI.DATEFORMAT.format(date)));
         
-        if (k == null) // wir zeichnen einen Stacked-Graph ueber alle Konten 
+//        if (forecast != null)
+//        {
+//          Date bis = null;
+//          Calendar cal = Calendar.getInstance();
+//          if (start < 0)
+//          {
+//            // Pauschal 3 Monate ab heute 
+//            cal.add(Calendar.MONTH,3);
+//          }
+//          else
+//          {
+//            cal.add(Calendar.DATE,start);
+//          }
+//          bis = DateUtil.endOfDay(cal.getTime());
+//          forecast.setTitle(i18n.tr("Saldo-Prognose bis {0}",HBCI.DATEFORMAT.format(bis)));
+//          ChartDataSaldoForecast f = new ChartDataSaldoForecast(k,bis);
+//          forecast.addData(f);
+//        }
+        
+        if (o == null || !(o instanceof Konto)) // wir zeichnen einen Stacked-Graph ueber alle Konten 
         {
           DBIterator it = Settings.getDBService().createList(Konto.class);
+          it.setOrder("ORDER BY LOWER(kategorie), blz, kontonummer, bezeichnung");
+          if (o != null && (o instanceof String)) it.addFilter("kategorie = ?", (String) o);
           ChartDataSaldoSumme s = new ChartDataSaldoSumme();
           while (it.hasNext())
           {
@@ -279,7 +331,7 @@ public class SaldoChart implements Part
         }
         else // Ansonsten nur fuer eine
         {
-          ChartDataSaldoVerlauf s = new ChartDataSaldoVerlauf(k,date);
+          ChartDataSaldoVerlauf s = new ChartDataSaldoVerlauf((Konto) o,date);
           ChartDataSaldoTrend   t = new ChartDataSaldoTrend();
           t.add(s.getData());
           chart.addData(s);
@@ -288,9 +340,14 @@ public class SaldoChart implements Part
         
         
         if (event != null)
+        {
           chart.redraw(); // nur neu laden, wenn via Select ausgeloest
+          
+//          if (forecast != null)
+//            forecast.redraw();
+        }
         
-        kPrev = k;
+        oPrev = o;
         startPrev = start;
       }
       catch (Exception e)
@@ -301,39 +358,3 @@ public class SaldoChart implements Part
     }
   }
 }
-
-
-/*********************************************************************
- * $Log: SaldoChart.java,v $
- * Revision 1.9  2012/04/05 21:27:41  willuhn
- * @B BUGZILLA 1219
- *
- * Revision 1.8  2011/12/18 23:20:20  willuhn
- * @N GUI-Politur
- *
- * Revision 1.7  2011-05-19 08:41:53  willuhn
- * @N BUGZILLA 1038 - generische Loesung
- *
- * Revision 1.6  2011-05-04 12:04:40  willuhn
- * @N Zeitraum in Umsatzliste und Saldo-Chart kann jetzt freier und bequemer ueber einen Schieberegler eingestellt werden
- * @B Dispose-Checks in Umsatzliste
- *
- * Revision 1.5  2011-04-08 15:19:14  willuhn
- * @R Alle Zurueck-Buttons entfernt - es gibt jetzt einen globalen Zurueck-Button oben rechts
- * @C Code-Cleanup
- *
- * Revision 1.4  2011-04-08 09:28:12  willuhn
- * *** empty log message ***
- *
- * Revision 1.3  2011-01-20 17:13:21  willuhn
- * @C HBCIProperties#startOfDay und HBCIProperties#endOfDay nach Jameica in DateUtil verschoben
- *
- * Revision 1.2  2010-08-12 17:12:32  willuhn
- * @N Saldo-Chart komplett ueberarbeitet (Daten wurden vorher mehrmals geladen, Summen-Funktion, Anzeige mehrerer Konten, Durchschnitt ueber mehrere Konten, Bugfixing, echte "Homogenisierung" der Salden via SaldoFinder)
- *
- * Revision 1.1  2010-08-11 16:06:05  willuhn
- * @N BUGZILLA 783 - Saldo-Chart ueber alle Konten
- *
- * Revision 1.6  2009/08/27 13:37:28  willuhn
- * @N Der grafische Saldo-Verlauf zeigt nun zusaetzlich  eine Trendkurve an
- *********************************************************************/

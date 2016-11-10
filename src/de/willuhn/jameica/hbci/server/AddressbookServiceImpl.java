@@ -22,8 +22,10 @@ import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.rmi.Address;
 import de.willuhn.jameica.hbci.rmi.Addressbook;
 import de.willuhn.jameica.hbci.rmi.AddressbookService;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
+import de.willuhn.util.ClassFinder;
 import de.willuhn.util.I18N;
 
 /**
@@ -98,20 +100,23 @@ public class AddressbookServiceImpl extends UnicastRemoteObject implements Addre
       try
       {
         Logger.info("loading addressbooks");
-        Class[] found = Application.getClassLoader().getClassFinder().findImplementors(Addressbook.class);
-        ArrayList list = new ArrayList();
         
+        BeanService service = Application.getBootLoader().getBootable(BeanService.class);
+        ClassFinder finder = Application.getPluginLoader().getPlugin(HBCI.class).getManifest().getClassLoader().getClassFinder();
+        Class[] found = finder.findImplementors(Addressbook.class);
+        ArrayList list = new ArrayList();
+
         // Uns selbst tun wir immer zuerst rein.
         // Damit stehen wir immer oben in der Liste
         list.add(this);
-        
+
         for(int i=0;i<found.length;++i)
         {
           if (found[i].equals(this.getClass()))
             continue; // Das sind wir selbst
           try
           {
-            Addressbook a = (Addressbook) found[i].newInstance();
+            Addressbook a = (Addressbook) service.get(found[i]);
             Logger.info("  " + a.getName());
             list.add(a);
           }
@@ -126,7 +131,7 @@ public class AddressbookServiceImpl extends UnicastRemoteObject implements Addre
       {
         Logger.error("no addressbooks found, suspekt!");
       }
-      
+
       // Sollte eigentlich nie passieren. Daher nur zur Sicherheit
       if (this.books == null || this.books.length == 0)
       {
@@ -146,7 +151,7 @@ public class AddressbookServiceImpl extends UnicastRemoteObject implements Addre
     // Adressbuch 1 sind wir selbst
     // Adressbuch 2 ist das Hibiscus-Adressbuch
     // --> Diese beiden existieren immer in Hibiscus
-    // Existiert noch mindestens eins mehr, dann haben wir externe 
+    // Existiert noch mindestens eins mehr, dann haben wir externe
     Addressbook[] books = getAddressbooks();
     return books != null && books.length > 2;
   }
@@ -182,7 +187,7 @@ public class AddressbookServiceImpl extends UnicastRemoteObject implements Addre
   {
     if (isStarted())
     {
-      Logger.warn("service allready started, skipping request");
+      Logger.warn("service already started, skipping request");
       return;
     }
     this.started = true;

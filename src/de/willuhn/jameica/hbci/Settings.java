@@ -15,13 +15,11 @@ package de.willuhn.jameica.hbci;
 import java.io.File;
 import java.rmi.ConnectException;
 import java.rmi.RemoteException;
-import java.util.Date;
 
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.RGB;
 
 import de.willuhn.datasource.rmi.DBIterator;
-import de.willuhn.datasource.rmi.ObjectNotFoundException;
 import de.willuhn.jameica.gui.GUI;
 import de.willuhn.jameica.hbci.rmi.HBCIDBService;
 import de.willuhn.jameica.hbci.rmi.Konto;
@@ -46,7 +44,7 @@ public class Settings
 
 	private static Color buchungSollForeground = null;
 	private static Color buchungHabenForeground = null;
-	
+
   /**
    * Liefert den Datenbank-Service.
    * @return Datenbank.
@@ -261,6 +259,24 @@ public class Settings
   }
 
   /**
+   * Liefert true, wenn Bankverbindungen aus dem Adressbuch aus der Pruefung ausgenommen werden sollen.
+   * @return true, wenn Bankverbindungen aus dem Adressbuch aus der Pruefung ausgenommen werden sollen.
+   */
+  public static boolean getKontoCheckExcludeAddressbook()
+  {
+    return settings.getBoolean("kontocheck.addressbook.exclude",false);
+  }
+
+  /**
+   * Legt fest, ob Bankverbindungen aus dem Adressbuch aus der Pruefung ausgenommen werden sollen.
+   * @param check true, wenn Bankverbindungen aus dem Adressbuch aus der Pruefung ausgenommen werden sollen.
+   */
+  public static void setKontoCheckExcludeAddressbook(boolean check)
+  {
+    settings.setAttribute("kontocheck.addressbook.exclude",check);
+  }
+
+  /**
    * Prueft, ob wir eine permanente Online-Verbindung haben und daher
    * vom HBCI-Kernel nicht dauernd gefragt werden muessen, ob wir eine
    * Internetverbindung haben wollen.
@@ -270,26 +286,6 @@ public class Settings
   {
     return settings.getBoolean("online",true);
   }
-  
-  /**
-   * BUGZILLA 227
-   * Prueft, ob die HBCI-Synchronisierung im Fehlerfall abgebrochen werden soll.
-   * @return true, wenn die Synchronisierung im Fehlerfall abbrechen soll.
-   */
-  public static boolean getCancelSyncOnError()
-  {
-    return settings.getBoolean("sync.cancelonerror",true);
-  }
-
-  /**
-   * Prueft, ob die HBCI-Synchronisierung im Fehlerfall abgebrochen werden soll.
-   * @param cancel true wenn die Synchronisierung im Fehlerfall abbrechen soll.
-   */
-  public static void setCancelSyncOnError(boolean cancel)
-  {
-    settings.setAttribute("sync.cancelonerror",cancel);
-  }
-
 
   /**
 	 * Liefert das Limit bei Ueberweisungen.
@@ -301,7 +297,7 @@ public class Settings
 	{
 		return settings.getDouble("ueberweisunglimit",10000.0);
 	}
-	
+
 	/**
 	 * Definiert ein Limit bei Ueberweisungen.
 	 * Soll den Benutzer davor schuetzen, versehentlich zu grosse Betraege bei
@@ -312,7 +308,7 @@ public class Settings
 	{
 		settings.setAttribute("ueberweisunglimit",limit);
 	}
-  
+
   /**
    * Prueft, ob der Saldo in die Berechnung der Umsatz-Checksumme einfliessen soll.
    * @return true, wenn er einfliessen soll (false ist der Default-Wert).
@@ -322,7 +318,7 @@ public class Settings
   {
     return settings.getBoolean("umsatz.checksum.saldo",false);
   }
-  
+
   /**
    * Liefert das von Hibiscus verwendete Wallet.
    * @return das Wallet.
@@ -331,63 +327,9 @@ public class Settings
   public static Wallet getWallet() throws Exception
   {
 		if (wallet == null)
-		{
       wallet = new Wallet(HBCI.class);
-      
-      // Migration BUGZILLA 62 - Loeschen der Liste der verbrauchten TANs
-      String date = settings.getString("migration.tancache.cleared",null);
-      if (date == null)
-      {
-        Logger.info("migration: removing cache of used tans");
-        wallet.deleteAll("tan.");
-        settings.setAttribute("migration.tancache.cleared",HBCI.LONGDATEFORMAT.format(new Date()));
-      }
-		}
+		
 		return wallet;
-  }
-  
-  /**
-   * Liefert das Default-Konto.
-   * @return das Default-Konto.
-   */
-  public static Konto getDefaultKonto()
-  {
-    String id = settings.getString("defaultkonto.id",null);
-    if (id == null || id.length() == 0)
-      return null;
-    try
-    {
-      return (Konto) getDBService().createObject(Konto.class,id);
-    }
-    catch (ObjectNotFoundException nfe)
-    {
-      // Konto existiert nicht mehr, resetten
-      settings.setAttribute("defaultkonto.id",(String)null);
-    }
-    catch (Exception e)
-    {
-      Logger.error("unable to determine default account",e);
-    }
-    return null;
-  }
-  
-  /**
-   * Speichert das Default-Konto.
-   * @param konto das Default-Konto oder NULL, wenn keines das Default-Konto sein soll.
-   */
-  public static void setDefaultKonto(Konto konto)
-  {
-    try
-    {
-      String id = konto == null ? null : konto.getID();
-      settings.setAttribute("defaultkonto.id",id);
-    }
-    catch (Exception e)
-    {
-      Logger.error("unable to apply default account",e);
-      // Einstellung loeschen
-      settings.setAttribute("defaultkonto.id",(String) null);
-    }
   }
 
   /**
@@ -412,55 +354,3 @@ public class Settings
     }
   }
 }
-
-/*********************************************************************
- * $Log: Settings.java,v $
- * Revision 1.68  2011/06/30 16:29:42  willuhn
- * @N Unterstuetzung fuer neues UnreadCount-Feature
- *
- * Revision 1.67  2011-06-09 10:14:59  willuhn
- * *** empty log message ***
- *
- * Revision 1.66  2011-05-23 14:53:26  willuhn
- * @R wieder deaktiviert - wegen diesem arroganten Schnoesel hier: http://www.onlinebanking-forum.de/phpBB2/viewtopic.php?p=75512#75512
- *
- * Revision 1.65  2011-05-23 12:57:38  willuhn
- * @N optionales Speichern der PINs im Wallet. Ich announce das aber nicht. Ich hab das nur eingebaut, weil mir das Gejammer der User auf den Nerv ging und ich nicht will, dass sich User hier selbst irgendwelche Makros basteln, um die PIN dennoch zu speichern
- *
- * Revision 1.64  2011-05-23 10:54:26  willuhn
- * @R BUGZILLA 62 - Liste der bisher gespeicherten TANs loeschen
- *
- * Revision 1.63  2010-09-16 09:54:05  willuhn
- * @B BUGZILLA #904
- *
- * Revision 1.62  2010/06/17 15:31:28  willuhn
- * @C BUGZILLA 622 - Defaultwert des checksum.saldo-Parameters geaendert - steht jetzt per Default auf false, sodass der Saldo NICHT mit in die Checksumme einfliesst
- * @B BUGZILLA 709 - Konto ist nun ENDLICH nicht mehr Bestandteil der Checksumme, dafuer sind jetzt alle Verwendungszweck-Zeilen drin
- *
- * Revision 1.61  2010/05/06 22:08:45  willuhn
- * @N BUGZILLA 622
- *
- * Revision 1.60  2009/03/31 11:01:40  willuhn
- * @R Speichern des PIN-Hashes komplett entfernt
- *
- * Revision 1.59  2009/03/18 22:10:58  willuhn
- * *** empty log message ***
- *
- * Revision 1.58  2009/03/10 23:51:31  willuhn
- * @C PluginResources#getPath als deprecated markiert - stattdessen sollte jetzt Manifest#getPluginDir() verwendet werden
- *
- * Revision 1.57  2009/03/05 13:41:23  willuhn
- * *** empty log message ***
- *
- * Revision 1.56  2009/02/19 10:24:51  willuhn
- * @C Default-Werte fuer System-Parameter geaendert
- *
- * Revision 1.55  2009/01/04 16:38:55  willuhn
- * @N BUGZILLA 523 - ein Konto kann jetzt als Default markiert werden. Das wird bei Auftraegen vorausgewaehlt und ist fett markiert
- *
- * Revision 1.54  2008/12/17 22:53:22  willuhn
- * @R steinalten Migrationscode entfernt
- *
- * Revision 1.53  2008/07/24 09:59:37  willuhn
- * @C Default-Wert des Auftragslimits erhoeht. 1.000,- waren in der Tat etwas wenig ;)
- **********************************************************************/

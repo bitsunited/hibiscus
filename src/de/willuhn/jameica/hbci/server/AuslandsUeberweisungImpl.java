@@ -13,9 +13,14 @@
 package de.willuhn.jameica.hbci.server;
 
 import java.rmi.RemoteException;
+import java.util.Date;
 
+import org.apache.commons.lang.StringUtils;
+
+import de.jost_net.OBanToo.SEPA.IBAN;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.HBCIProperties;
+import de.willuhn.jameica.hbci.rmi.Address;
 import de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung;
 import de.willuhn.jameica.hbci.rmi.Duplicatable;
 import de.willuhn.jameica.hbci.rmi.Konto;
@@ -56,6 +61,13 @@ public class AuslandsUeberweisungImpl extends AbstractBaseUeberweisungImpl imple
     u.setGegenkontoBLZ(getGegenkontoBLZ());
     u.setKonto(getKonto());
     u.setZweck(getZweck());
+    u.setEndtoEndId(getEndtoEndId());
+    u.setPmtInfId(getPmtInfId());
+    u.setTerminUeberweisung(isTerminUeberweisung());
+    u.setTermin(isTerminUeberweisung() ? getTermin() : new Date());
+    u.setUmbuchung(isUmbuchung());
+    u.setPurposeCode(getPurposeCode());
+    
     return u;
   }
 
@@ -63,6 +75,7 @@ public class AuslandsUeberweisungImpl extends AbstractBaseUeberweisungImpl imple
    * @see de.willuhn.datasource.db.AbstractDBObject#insertCheck()
    */
   protected void insertCheck() throws ApplicationException {
+    
     try {
       Konto k = getKonto();
 
@@ -83,32 +96,104 @@ public class AuslandsUeberweisungImpl extends AbstractBaseUeberweisungImpl imple
       if (betrag == 0.0 || Double.isNaN(betrag))
         throw new ApplicationException(i18n.tr("Bitte geben Sie einen gültigen Betrag ein."));
 
-      if (getGegenkontoNummer() == null || getGegenkontoNummer().length() == 0)
+      //////////////////////////////////////
+      // IBAN und BIC pruefen
+      String s = StringUtils.trimToNull(getGegenkontoNummer());
+      if (s == null)
         throw new ApplicationException(i18n.tr("Bitte geben Sie die IBAN des Gegenkontos ein"));
-      HBCIProperties.checkChars(getGegenkontoNummer(), HBCIProperties.HBCI_IBAN_VALIDCHARS);
-      HBCIProperties.checkLength(getGegenkontoNummer(), HBCIProperties.HBCI_IBAN_MAXLENGTH);
 
-      if (getGegenkontoBLZ() == null || getGegenkontoBLZ().length() == 0)
+      HBCIProperties.checkChars(s, HBCIProperties.HBCI_IBAN_VALIDCHARS);
+      HBCIProperties.checkLength(s, HBCIProperties.HBCI_IBAN_MAXLENGTH);
+
+      IBAN iban = HBCIProperties.getIBAN(s);
+
+      // Automatisch aus IBAN vervollstaendigen, wenn sie fehlt
+      if (StringUtils.trimToNull(getGegenkontoBLZ()) == null)
+        setGegenkontoBLZ(iban.getBIC());
+
+      if (StringUtils.trimToNull(getGegenkontoBLZ()) == null)
         throw new ApplicationException(i18n.tr("Bitte geben Sie die BIC des Gegenkontos ein"));
-      HBCIProperties.checkChars(getGegenkontoBLZ(), HBCIProperties.HBCI_BIC_VALIDCHARS);
-      HBCIProperties.checkLength(getGegenkontoBLZ(), HBCIProperties.HBCI_BIC_MAXLENGTH);
+      
+      HBCIProperties.checkBIC(getGegenkontoBLZ());
+      //
+      //////////////////////////////////////
 
-      if (getGegenkontoName() == null || getGegenkontoName().length() == 0)
+      if (StringUtils.trimToNull(getGegenkontoName()) == null)
         throw new ApplicationException(i18n.tr("Bitte geben Sie den Namen des Kontoinhabers des Gegenkontos ein"));
       HBCIProperties.checkLength(getGegenkontoName(), HBCIProperties.HBCI_FOREIGNTRANSFER_USAGE_MAXLENGTH);
       HBCIProperties.checkChars(getGegenkontoName(), HBCIProperties.HBCI_SEPA_VALIDCHARS);
 
-      if (!HBCIProperties.checkIBANCRC(getGegenkontoNummer()))
-        throw new ApplicationException(i18n.tr("Ungültige IBAN. Bitte prüfen Sie Ihre Eingaben."));
-        
       HBCIProperties.checkLength(getZweck(), HBCIProperties.HBCI_FOREIGNTRANSFER_USAGE_MAXLENGTH);
       HBCIProperties.checkChars(getZweck(), HBCIProperties.HBCI_SEPA_VALIDCHARS);
+      
+      HBCIProperties.checkLength(getEndtoEndId(), HBCIProperties.HBCI_SEPA_ENDTOENDID_MAXLENGTH);
+      HBCIProperties.checkChars(getEndtoEndId(), HBCIProperties.HBCI_SEPA_VALIDCHARS);
+      
+      HBCIProperties.checkLength(getPmtInfId(), HBCIProperties.HBCI_SEPA_ENDTOENDID_MAXLENGTH);
+      HBCIProperties.checkChars(getPmtInfId(), HBCIProperties.HBCI_SEPA_VALIDCHARS);
+
+      HBCIProperties.checkLength(getPurposeCode(), HBCIProperties.HBCI_SEPA_PURPOSECODE_MAXLENGTH);
+      HBCIProperties.checkChars(getPurposeCode(), HBCIProperties.HBCI_SEPA_PURPOSECODE_VALIDCHARS);
+      
+      if (isUmbuchung() && isTerminUeberweisung())
+        throw new ApplicationException(i18n.tr("Eine Umbuchung kann nicht als Termin-Auftrag gesendet werden"));
+      
+      if (this.getTermin() == null)
+        this.setTermin(new Date());
+
     }
     catch (RemoteException e)
     {
       Logger.error("error while checking foreign ueberweisung",e);
       throw new ApplicationException(i18n.tr("Fehler beim Prüfen der SEPA-Überweisung."));
     }
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung#isTerminUeberweisung()
+   */
+  public boolean isTerminUeberweisung() throws RemoteException
+  {
+    Integer i = (Integer) getAttribute("banktermin");
+    return i != null && i.intValue() == 1;
+  }
+
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung#setTerminUeberweisung(boolean)
+   */
+  public void setTerminUeberweisung(boolean termin) throws RemoteException
+  {
+    setAttribute("banktermin",termin ? new Integer(1) : null);
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung#isUmbuchung()
+   */
+  public boolean isUmbuchung() throws RemoteException
+  {
+    Integer i = (Integer) getAttribute("umbuchung");
+    return i != null && i.intValue() == 1;
+  }
+
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung#setUmbuchung(boolean)
+   */
+  public void setUmbuchung(boolean b) throws RemoteException
+  {
+    setAttribute("umbuchung",b ? new Integer(1) : null);
+  }
+
+
+  /**
+   * @see de.willuhn.jameica.hbci.server.AbstractBaseUeberweisungImpl#ueberfaellig()
+   */
+  public boolean ueberfaellig() throws RemoteException
+  {
+    // Termin-Auftraege werden sofort faellig gestellt, weil sie ja durch die Bank terminiert werden
+    if (isTerminUeberweisung())
+      return !ausgefuehrt();
+    
+    return super.ueberfaellig();
   }
 
   /**
@@ -135,6 +220,20 @@ public class AuslandsUeberweisungImpl extends AbstractBaseUeberweisungImpl imple
   {
     return (String) getAttribute("empfaenger_bic");
   }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.server.AbstractHibiscusTransferImpl#setGegenkonto(de.willuhn.jameica.hbci.rmi.Address)
+   */
+  public void setGegenkonto(Address e) throws RemoteException
+  {
+    if (e == null)
+      return;
+
+    // BUGZILLA 1437 - wir uebernehmen hier stattdessen BIC und IBAN
+    setGegenkontoBLZ(e.getBic());
+    setGegenkontoNummer(e.getIban());
+    setGegenkontoName(e.getName());
+  }
 
   /**
    * @see de.willuhn.jameica.hbci.server.AbstractHibiscusTransferImpl#setWeitereVerwendungszwecke(java.lang.String[])
@@ -153,28 +252,54 @@ public class AuslandsUeberweisungImpl extends AbstractBaseUeberweisungImpl imple
     if (zweck2 != null && zweck2.length() > 0)
       throw new RemoteException("second usage not allowed for foreign transfer");
   }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SepaBooking#getEndtoEndId()
+   */
+  public String getEndtoEndId() throws RemoteException
+  {
+    return (String) getAttribute("endtoendid");
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SepaBooking#setEndtoEndId(java.lang.String)
+   */
+  public void setEndtoEndId(String id) throws RemoteException
+  {
+    setAttribute("endtoendid",id);
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SepaPayment#getPmtInfId()
+   */
+  public String getPmtInfId() throws RemoteException
+  {
+    return (String) getAttribute("pmtinfid");
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SepaPayment#setPmtInfId(java.lang.String)
+   */
+  public void setPmtInfId(String id) throws RemoteException
+  {
+    setAttribute("pmtinfid",id);
+  }
+
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SepaBooking#getPurposeCode()
+   */
+  @Override
+  public String getPurposeCode() throws RemoteException
+  {
+    return (String) getAttribute("purposecode");
+  }
+  
+  /**
+   * @see de.willuhn.jameica.hbci.rmi.SepaBooking#setPurposeCode(java.lang.String)
+   */
+  @Override
+  public void setPurposeCode(String code) throws RemoteException
+  {
+    setAttribute("purposecode",code);
+  }
 }
-
-
-/**********************************************************************
- * $Log: AuslandsUeberweisungImpl.java,v $
- * Revision 1.6  2011/03/01 10:52:18  willuhn
- * @B Exception nur dann werfen, wenn bei Textschluessel oder Verwendungszweck auch tatsaechlich etwas angegeben wurde - siehe Mail von Patrick vom 01.03.2011
- *
- * Revision 1.5  2010/04/27 11:02:32  willuhn
- * @R Veralteten Verwendungszweck-Code entfernt
- *
- * Revision 1.4  2009/10/20 23:12:58  willuhn
- * @N Support fuer SEPA-Ueberweisungen
- * @N Konten um IBAN und BIC erweitert
- *
- * Revision 1.3  2009/05/07 15:13:37  willuhn
- * @N BIC in Auslandsueberweisung
- *
- * Revision 1.2  2009/03/17 23:44:15  willuhn
- * @N BUGZILLA 159 - Auslandsueberweisungen. Erste Version
- *
- * Revision 1.1  2009/02/17 00:00:02  willuhn
- * @N BUGZILLA 159 - Erster Code fuer Auslands-Ueberweisungen
- *
- **********************************************************************/

@@ -32,12 +32,15 @@ import org.supercsv.prefs.CsvPreference;
 import de.willuhn.datasource.BeanUtil;
 import de.willuhn.datasource.rmi.DBObject;
 import de.willuhn.datasource.rmi.DBService;
+import de.willuhn.io.IOUtil;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.gui.dialogs.CSVImportDialog;
 import de.willuhn.jameica.hbci.io.IOFormat;
 import de.willuhn.jameica.hbci.io.Importer;
 import de.willuhn.jameica.hbci.messaging.ImportMessage;
+import de.willuhn.jameica.services.BeanService;
 import de.willuhn.jameica.system.Application;
+import de.willuhn.jameica.system.BackgroundTask;
 import de.willuhn.jameica.system.OperationCanceledException;
 import de.willuhn.logging.Logger;
 import de.willuhn.util.ApplicationException;
@@ -53,10 +56,12 @@ public class CsvImporter implements Importer
   private static I18N i18n = Application.getPluginLoader().getPlugin(HBCI.class).getResources().getI18N();
 
   /**
-   * @see de.willuhn.jameica.hbci.io.Importer#doImport(java.lang.Object, de.willuhn.jameica.hbci.io.IOFormat, java.io.InputStream, de.willuhn.util.ProgressMonitor)
+   * @see de.willuhn.jameica.hbci.io.Importer#doImport(java.lang.Object, de.willuhn.jameica.hbci.io.IOFormat, java.io.InputStream, de.willuhn.util.ProgressMonitor, de.willuhn.jameica.system.BackgroundTask)
    */
-  public void doImport(Object context, IOFormat format, InputStream is, ProgressMonitor monitor) throws RemoteException, ApplicationException
+  public void doImport(Object context, IOFormat format, InputStream is, ProgressMonitor monitor, BackgroundTask t) throws RemoteException, ApplicationException
   {
+    ICsvListReader csv = null;
+    
     try
     {
       if (is == null)
@@ -87,12 +92,8 @@ public class CsvImporter implements Importer
       CSVImportDialog d = new CSVImportDialog(data,f,CSVImportDialog.POSITION_CENTER);
       Profile p = (Profile) d.open();
 
-      CsvPreference prefs = CsvPreference.EXCEL_NORTH_EUROPE_PREFERENCE;
-      String sep = p.getSeparatorChar();
-      String quo = p.getQuotingChar();
-      if (sep != null && sep.length() == 1) prefs.setDelimiterChar(sep.charAt(0));
-      if (quo != null && quo.length() == 1) prefs.setQuoteChar(quo.charAt(0));
-      ICsvListReader csv = new CsvListReader(new InputStreamReader(new ByteArrayInputStream(data),p.getFileEncoding()),prefs);
+      CsvPreference prefs = p.createCsvPreference();
+      csv = new CsvListReader(new InputStreamReader(new ByteArrayInputStream(data),p.getFileEncoding()),prefs);
 
       List<String> line = csv.read();
       
@@ -122,6 +123,9 @@ public class CsvImporter implements Importer
 
         try
         {
+          if (t != null && t.isInterrupted())
+            throw new OperationCanceledException();
+
           object = service.createObject(f.getType(),null);
           
           // Spalten zuordnen
@@ -269,6 +273,10 @@ public class CsvImporter implements Importer
       Logger.error("error while reading file",e);
       throw new ApplicationException(i18n.tr("Fehler beim Lesen der CSV-Datei"));
     }
+    finally
+    {
+      IOUtil.close(csv);
+    }
   }
 
   /**
@@ -280,13 +288,14 @@ public class CsvImporter implements Importer
     List<IOFormat> formats = new ArrayList<IOFormat>();
     try
     {
+      BeanService service = Application.getBootLoader().getBootable(BeanService.class);
       ClassFinder finder = Application.getPluginLoader().getManifest(HBCI.class).getClassLoader().getClassFinder();
       Class<Format>[] classes = finder.findImplementors(Format.class);
       for (Class<Format> c:classes)
       {
         try
         {
-          Format f = c.newInstance();
+          Format f = service.get(c);
           Class type = f.getType();
           if (type == null)
           {

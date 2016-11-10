@@ -27,9 +27,9 @@ import de.willuhn.jameica.gui.util.SWTUtil;
 import de.willuhn.jameica.gui.util.SimpleContainer;
 import de.willuhn.jameica.hbci.HBCI;
 import de.willuhn.jameica.hbci.Settings;
-import de.willuhn.jameica.hbci.rmi.Dauerauftrag;
+import de.willuhn.jameica.hbci.rmi.AuslandsUeberweisung;
+import de.willuhn.jameica.hbci.rmi.SepaDauerauftrag;
 import de.willuhn.jameica.hbci.rmi.Turnus;
-import de.willuhn.jameica.hbci.rmi.Ueberweisung;
 import de.willuhn.jameica.messaging.StatusBarMessage;
 import de.willuhn.jameica.system.Application;
 import de.willuhn.logging.Logger;
@@ -71,29 +71,19 @@ public class DonateView extends AbstractView
     
     {
       Container container = new SimpleContainer(getParent());
-      container.addHeadline(i18n.tr("Idee"));
-      container.addText(i18n.tr("Hibiscus wird von vielen tausend Usern in Deutschland genutzt. " +
-      		                      "Eine sehr kleine, aber regelmäßige Spende (z.Bsp. ein oder zwei Euro im Monat) von " +
-      		                      "nur einem Teil der vielen User würde bereits genügen, damit ich " +
-      		                      "in Vollzeit an Hibiscus arbeiten könnte. " +
-      		                      "Angenommen, es fänden sich 1000 User, die bereit sind, zwei Euro im Monat " +
-      		                      "mittels Dauerauftrag zu spenden. Dann blieben nach Abzug der Steuern, die ich " +
-      		                      "darauf bezahlen muss, immer noch über 1000,- Euro monatlich übrig.\n\n" +
-      		                      "Ein kleiner Einsatz von Vielen. Aber eine große Wirkung. Hibiscus wäre nicht mehr " +
-      		                      "länger ein Freizeitprojekt. Sondern eine Vollzeit-Aufgabe für mich. Und Sie " +
-      		                      "wären meine Arbeitgeber. Eine faszinierende Idee, wie ich finde.\n\n" +
-      		                      "Ich würde mich freuen, wenn Sie dies mit unterstützen wollen. Durch Klick auf " +
-      		                      "\"Dauerauftrag erstellen\" können Sie einen Dauerauftrag anlegen, in dem bereits " +
-      		                      "mein Konto als Empfänger eingetragen ist. Absenden müssen Sie ihn natürlich noch " +
-      		                      "manuell ;)\n\n" +
+      container.addHeadline(i18n.tr("Unterstützen"));
+      container.addText(i18n.tr("Ich würde mich freuen, wenn Sie das Projekt mit unterstützen wollen. Durch Klick auf " +
+      		                      "\"Dauerauftrag erstellen\" können Sie eine einmalige Überweisung oder einen Dauerauftrag (z.Bsp. mit 1 oder 2 EUR) " +
+      		                      "erstellen, in dem mein Konto bereits als Empfänger eingetragen ist.\n\n" +
+      		                      "Nur wenn Sie wollen - es ist völlig freiwillig.\n\n" +
       		                      "Vielen Dank!\n" +
       		                      "Olaf Willuhn"),true);
     }
 
     {
       
-      final char[] kto = new char[]{'1','2','1','0','3','2','2','5','2','4'};
-      final char[] blz = new char[]{'8','6','0','5','0','2','0','0'};
+      final char[] iban = new char[]{'D','E','1','7','8','6','0','5','0','2','0','0','1','2','1','0','3','2','2','5','2','4'};
+      final char[] bic  = new char[]{'S','O','L','A','D','E','S','1','G','R','M'};
       final String name = "Olaf Willuhn";
       
       ButtonArea buttons = new ButtonArea();
@@ -102,9 +92,9 @@ public class DonateView extends AbstractView
         {
           try
           {
-            Dauerauftrag d = (Dauerauftrag) Settings.getDBService().createObject(Dauerauftrag.class,null);
-            d.setGegenkontoBLZ(new String(blz));
-            d.setGegenkontoNummer(new String(kto));
+            SepaDauerauftrag d = (SepaDauerauftrag) Settings.getDBService().createObject(SepaDauerauftrag.class,null);
+            d.setGegenkontoBLZ(new String(bic));
+            d.setGegenkontoNummer(new String(iban));
             d.setGegenkontoName(name);
             d.setZweck("Hibiscus-Spende");
 
@@ -117,31 +107,31 @@ public class DonateView extends AbstractView
             turnus.setTag(cal.get(Calendar.DAY_OF_MONTH));
             turnus.setZeiteinheit(Turnus.ZEITEINHEIT_MONATLICH);
             d.setTurnus(turnus);
-            new de.willuhn.jameica.hbci.gui.action.DauerauftragNew().handleAction(d);
+            new de.willuhn.jameica.hbci.gui.action.SepaDauerauftragNew().handleAction(d);
           }
           catch (Exception e)
           {
-            Logger.error("unable to create dauerauftrag",e);
-            Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Anlegen des Dauerauftrages: {0}",e.getMessage()),StatusBarMessage.TYPE_ERROR));
+            Logger.error("unable to create sepa-dauerauftrag",e);
+            Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Anlegen des SEPA-Dauerauftrages: {0}",e.getMessage()),StatusBarMessage.TYPE_ERROR));
           }
         }
       },null,false,"emblem-special.png");
-      buttons.addButton(i18n.tr("...oder Einzelspende"),new Action() {
+      buttons.addButton(i18n.tr("...oder Überweisung"),new Action() {
         public void handleAction(Object context) throws ApplicationException
         {
           try
           {
-            Ueberweisung u = (Ueberweisung) Settings.getDBService().createObject(Ueberweisung.class,null);
-            u.setGegenkontoBLZ(new String(blz));
-            u.setGegenkontoNummer(new String(kto));
+            AuslandsUeberweisung u = (AuslandsUeberweisung) Settings.getDBService().createObject(AuslandsUeberweisung.class,null);
+            u.setGegenkontoBLZ(new String(bic));
+            u.setGegenkontoNummer(new String(iban));
             u.setGegenkontoName(name);
             u.setZweck("Spende Hibiscus");
-            new de.willuhn.jameica.hbci.gui.action.UeberweisungNew().handleAction(u);
+            new de.willuhn.jameica.hbci.gui.action.AuslandsUeberweisungNew().handleAction(u);
           }
           catch (Exception e)
           {
-            Logger.error("unable to create ueberweisung",e);
-            Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Anlegen der Überweisung: {0}",e.getMessage()),StatusBarMessage.TYPE_ERROR));
+            Logger.error("unable to create sepa ueberweisung",e);
+            Application.getMessagingFactory().sendMessage(new StatusBarMessage(i18n.tr("Fehler beim Anlegen der SEPA-Überweisung: {0}",e.getMessage()),StatusBarMessage.TYPE_ERROR));
           }
         }
       },null,false,"stock_next.png");

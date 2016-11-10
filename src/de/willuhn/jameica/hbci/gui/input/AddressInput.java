@@ -26,7 +26,6 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.Listener;
-import org.kapott.hbci.manager.HBCIUtils;
 
 import de.willuhn.jameica.gui.Action;
 import de.willuhn.jameica.gui.GUI;
@@ -57,6 +56,7 @@ public class AddressInput implements Input
   private AddressFilter filter   = null;
   private SuggestInput input     = null;
   private Button button          = null;
+  private String validChars      = HBCIProperties.HBCI_DTAUS_VALIDCHARS;
   
   /**
    * ct.
@@ -207,6 +207,18 @@ public class AddressInput implements Input
   }
 
   /**
+   * Definiert eine Liste von Zeichen, die eingegeben werden koennen.
+   * Wird diese Funktion verwendet, dann duerfen nur noch die hier
+   * angegebenen Zeichen eingegeben werden.
+   * Wenn keine Zeichen angegeben sind, gelten die Zeichen aus HBCIProperties.HBCI_DTAUS_VALIDCHARS.
+   * @param chars die erlaubten Zeichen.
+   */
+  public void setValidChars(String chars)
+  {
+    this.validChars = chars;
+  }
+
+  /**
    * @see de.willuhn.jameica.gui.input.Input#paint(org.eclipse.swt.widgets.Composite, int)
    */
   public void paint(Composite parent, int width)
@@ -314,7 +326,7 @@ public class AddressInput implements Input
     {
       super();
       this.setValue(name);
-      this.setValidChars(HBCIProperties.HBCI_DTAUS_VALIDCHARS);
+      this.setValidChars(validChars);
       this.setMaxLength(HBCIProperties.HBCI_TRANSFER_NAME_MAXLENGTH);
       this.addListener(new Listener()
       {
@@ -340,13 +352,11 @@ public class AddressInput implements Input
     public void setText(String s)
     {
       String before = s;
-      String after = HBCIProperties.clean(s,HBCIProperties.HBCI_DTAUS_VALIDCHARS);
+      String after = HBCIProperties.clean(s,validChars);
       // Alle Zeichen rauswerfen, die nicht zulaessig sind.
       super.setText(after);
       if (before != null && !before.equals(after))
         GUI.getView().setErrorText(i18n.tr("Im Namen wurden nicht zulässige Zeichen entfernt"));
-      else
-        GUI.getView().setErrorText("");
     }
 
     /**
@@ -369,7 +379,7 @@ public class AddressInput implements Input
         if (blz != null && blz.length() > 0)
         {
           sb.append(" - ");
-          String bankName = HBCIUtils.getNameForBLZ(blz);
+          String bankName = HBCIProperties.getNameForBank(blz);
           if (bankName != null && bankName.length() > 0)
           {
             sb.append(bankName);

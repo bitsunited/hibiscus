@@ -21,6 +21,7 @@ import org.kapott.hbci.structures.Value;
 
 import de.willuhn.jameica.hbci.HBCIProperties;
 import de.willuhn.jameica.hbci.messaging.SaldoMessage;
+import de.willuhn.jameica.hbci.rmi.HibiscusDBObject;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.Protokoll;
 import de.willuhn.jameica.hbci.server.Converter;
@@ -53,12 +54,11 @@ public class HBCISaldoJob extends AbstractHBCIJob {
 
 			this.konto = konto;
 
-			setJobParam("my",Converter.HibiscusKonto2HBCIKonto(konto));
-
       String curr = konto.getWaehrung();
       if (curr == null || curr.length() == 0)
-        curr = HBCIProperties.CURRENCY_DEFAULT_DE;
-      setJobParam("my.curr",curr);
+        konto.setWaehrung(HBCIProperties.CURRENCY_DEFAULT_DE);
+			
+			setJobParam("my",Converter.HibiscusKonto2HBCIKonto(konto));
     }
 		catch (RemoteException e)
 		{
@@ -74,11 +74,20 @@ public class HBCISaldoJob extends AbstractHBCIJob {
 			throw new ApplicationException(i18n.tr("Fehler beim Erstellen des Auftrags. Fehlermeldung: {0}",t.getMessage()),t);
 		}
 	}
+  
+  /**
+   * @see de.willuhn.jameica.hbci.server.hbci.AbstractHBCIJob#getContext()
+   */
+  @Override
+  protected HibiscusDBObject getContext()
+  {
+    return this.konto;
+  }
 
   /**
    * @see de.willuhn.jameica.hbci.server.hbci.AbstractHBCIJob#getIdentifier()
    */
-  String getIdentifier()
+  public String getIdentifier()
   {
     return "SaldoReq";
   }
@@ -94,7 +103,7 @@ public class HBCISaldoJob extends AbstractHBCIJob {
   /**
    * @see de.willuhn.jameica.hbci.server.hbci.AbstractHBCIJob#markExecuted()
    */
-  void markExecuted() throws RemoteException, ApplicationException
+  protected void markExecuted() throws RemoteException, ApplicationException
   {
     GVRSaldoReq result = (GVRSaldoReq) getJobResult();
     konto.addToProtokoll(i18n.tr("Saldo abgerufen"),Protokoll.TYP_SUCCESS);
@@ -118,46 +127,10 @@ public class HBCISaldoJob extends AbstractHBCIJob {
   /**
    * @see de.willuhn.jameica.hbci.server.hbci.AbstractHBCIJob#markFailed(java.lang.String)
    */
-  String markFailed(String error) throws RemoteException, ApplicationException
+  protected String markFailed(String error) throws RemoteException, ApplicationException
   {
     String msg = i18n.tr("Fehler beim Abrufen das Saldos: {0}",error);
     konto.addToProtokoll(msg,Protokoll.TYP_ERROR);
     return msg;
   }
 }
-
-
-/**********************************************************************
- * $Log: HBCISaldoJob.java,v $
- * Revision 1.32  2012/03/01 22:19:15  willuhn
- * @N i18n statisch und expliziten Super-Konstruktor entfernt - unnoetig
- *
- * Revision 1.31  2010-06-17 12:16:52  willuhn
- * @N BUGZILLA 530
- *
- * Revision 1.30  2008/11/07 14:02:08  willuhn
- * @B ArrayIndexOutOfBoundsException, wenn keine Saldo-Infos vorliegen
- *
- * Revision 1.29  2008/09/23 11:24:26  willuhn
- * @C Auswertung der Job-Results umgestellt. Die Entscheidung, ob Fehler oder Erfolg findet nun nur noch an einer Stelle (in AbstractHBCIJob) statt. Ausserdem wird ein Job auch dann als erfolgreich erledigt markiert, wenn der globale Job-Status zwar fehlerhaft war, aber fuer den einzelnen Auftrag nicht zweifelsfrei ermittelt werden konnte, ob er erfolgreich war oder nicht. Es koennte unter Umstaenden sein, eine Ueberweisung faelschlicherweise als ausgefuehrt markiert (wenn globaler Status OK, aber Job-Status != ERROR). Das ist aber allemal besser, als sie doppelt auszufuehren.
- *
- * Revision 1.28  2007/12/11 13:46:47  willuhn
- * @N Waehrung auch bei Saldo-Abfrage - siehe http://www.onlinebanking-forum.de/phpBB2/viewtopic.php?p=43618#43618
- *
- * Revision 1.27  2007/12/11 13:17:26  willuhn
- * @N Waehrung bei Umsatzabfrage - siehe http://www.onlinebanking-forum.de/phpBB2/viewtopic.php?p=43618#43618
- *
- * Revision 1.26  2007/12/11 12:23:26  willuhn
- * @N Bug 355
- *
- * Revision 1.25  2007/12/11 11:59:40  willuhn
- * @N Waehrung bei Saldo-Job mit uebertragen. Siehe http://www.onlinebanking-forum.de/phpBB2/viewtopic.php?p=43610#43610
- *
- * Revision 1.24  2007/12/06 14:25:32  willuhn
- * @B Bug 494
- *
- * Revision 1.23  2007/06/15 11:20:32  willuhn
- * @N Saldo in Kontodetails via Messaging sofort aktualisieren
- * @N Mehr Details in den Namen der Synchronize-Jobs
- * @N Layout der Umsatzdetail-Anzeige ueberarbeitet
- **********************************************************************/
